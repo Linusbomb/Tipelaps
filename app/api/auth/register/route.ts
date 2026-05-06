@@ -32,6 +32,13 @@ export async function POST(request: NextRequest) {
     const hashedPassword = await hashPassword(password)
 
     if (role === 'ENTREPRENEUR' && companyName) {
+      const existingUsers = await prisma.user.count()
+      if (existingUsers > 0) {
+        return NextResponse.json(
+          { error: 'Publik registrering av entreprenör är stängd. Kontakta support eller använd befintligt admin-konto.' },
+          { status: 403 }
+        )
+      }
       // Skapa entreprenör först
       const user = await prisma.user.create({
         data: {
