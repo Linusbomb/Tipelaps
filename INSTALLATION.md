@@ -31,6 +31,23 @@ npm run dev
 
 Öppna [http://localhost:3000](http://localhost:3000) i din webbläsare.
 
+### Demo-användare (valfritt)
+
+Efter `npx prisma db push` kan du fylla på testkonton (lösenordet kan sättas med miljövariabel):
+
+```bash
+npx prisma db seed
+```
+
+Standardlösenord: `Demo1234!` (sätt eget med `SEED_PASSWORD=dittLösenord npx prisma db seed`).
+
+| Roll | E-post | Inloggning på sajten |
+|------|--------|----------------------|
+| Entreprenör (admin) | `admin@demo.local` | **Admin** på startsidan |
+| Anställd | `personal@demo.local` | **Personal** på startsidan |
+
+Kör bara seed **en gång** per databas (om `admin@demo.local` redan finns hoppas seed över). I produktion: byt lösenord eller ta bort demo-konton när du är klar.
+
 ---
 
 ## Deploy: Render (checklista)
