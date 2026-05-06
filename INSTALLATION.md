@@ -48,6 +48,8 @@ npx prisma db seed
 
 Kör bara seed **en gång** per databas (om `demo@admin.se` redan finns hoppas seed över). I produktion: byt lösenord eller ta bort demo-konton när du är klar.
 
+Nya entreprenörer kan även skapa **eget admin-konto** via **`/register`** på webbplatsen (företagsnamn + uppgifter).
+
 ---
 
 ## Deploy: Render (checklista)
