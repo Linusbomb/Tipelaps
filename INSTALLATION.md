@@ -39,14 +39,14 @@ Efter `npx prisma db push` kan du fylla på testkonton (lösenordet kan sättas 
 npx prisma db seed
 ```
 
-Standardlösenord: `Demo1234!` (sätt eget med `SEED_PASSWORD=dittLösenord npx prisma db seed`).
+Standardlösenord: `demo123` (sätt eget med `SEED_PASSWORD=dittLösenord npx prisma db seed`).
 
 | Roll | E-post | Inloggning på sajten |
 |------|--------|----------------------|
-| Entreprenör (admin) | `admin@demo.local` | **Admin** på startsidan |
-| Anställd | `personal@demo.local` | **Personal** på startsidan |
+| Entreprenör (admin) | `demo@admin.se` | **Admin** på startsidan |
+| Anställd | `demo@personal.se` | **Personal** på startsidan |
 
-Kör bara seed **en gång** per databas (om `admin@demo.local` redan finns hoppas seed över). I produktion: byt lösenord eller ta bort demo-konton när du är klar.
+Kör bara seed **en gång** per databas (om `demo@admin.se` redan finns hoppas seed över). I produktion: byt lösenord eller ta bort demo-konton när du är klar.
 
 ---
 

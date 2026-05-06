@@ -3,15 +3,16 @@ import bcrypt from 'bcryptjs'
 
 const prisma = new PrismaClient()
 
-const ADMIN_EMAIL = 'admin@demo.local'
-const EMPLOYEE_EMAIL = 'personal@demo.local'
+const ADMIN_EMAIL = 'demo@admin.se'
+const EMPLOYEE_EMAIL = 'demo@personal.se'
+const DEFAULT_PASSWORD = 'demo123'
 
 async function hashPassword(password: string) {
   return bcrypt.hash(password, 10)
 }
 
 async function main() {
-  const password = process.env.SEED_PASSWORD || 'Demo1234!'
+  const password = process.env.SEED_PASSWORD || DEFAULT_PASSWORD
 
   const existing = await prisma.user.findUnique({ where: { email: ADMIN_EMAIL } })
   if (existing) {
@@ -59,7 +60,7 @@ async function main() {
   console.log('  Lösenord: ', password)
   console.log('')
   console.log('Logga in via startsidan: Admin resp. Personal.')
-  console.log('Valfritt: SEED_PASSWORD=starktLösen npx prisma db seed')
+  console.log('Valfritt: SEED_PASSWORD=annatLösen npx prisma db seed')
 }
 
 main()
