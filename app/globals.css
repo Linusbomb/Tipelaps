@@ -1,0 +1,529 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer components {
+  .app-shell {
+    @apply container mx-auto px-3 sm:px-4 py-6 sm:py-8;
+  }
+
+  .app-shell-wide {
+    @apply max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8;
+  }
+
+  .app-shell-narrow {
+    @apply max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8;
+  }
+
+  .app-card {
+    @apply bg-white rounded-lg shadow-md p-4 sm:p-6;
+  }
+
+  .app-title {
+    @apply text-2xl sm:text-3xl font-bold;
+  }
+}
+
+/* Marmor-textur bakgrund */
+@layer utilities {
+  .bg-marble {
+    background: linear-gradient(135deg, #f5f5f0 0%, #fafafa 25%, #f0f0eb 50%, #fafafa 75%, #f5f5f0 100%);
+    background-size: 200% 200%;
+    position: relative;
+    overflow: hidden;
+  }
+  
+  .bg-marble::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: 
+      radial-gradient(circle at 20% 50%, rgba(200, 200, 195, 0.3) 0%, transparent 50%),
+      radial-gradient(circle at 80% 80%, rgba(180, 180, 175, 0.2) 0%, transparent 50%),
+      radial-gradient(circle at 40% 20%, rgba(220, 220, 215, 0.25) 0%, transparent 50%),
+      linear-gradient(135deg, rgba(190, 190, 185, 0.1) 0%, transparent 50%);
+    background-size: 100% 100%, 100% 100%, 100% 100%, 200% 200%;
+    pointer-events: none;
+    filter: blur(0.5px);
+  }
+  
+  .bg-marble::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: 
+      repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(200, 200, 195, 0.03) 2px,
+        rgba(200, 200, 195, 0.03) 4px
+      ),
+      repeating-linear-gradient(
+        90deg,
+        transparent,
+        transparent 2px,
+        rgba(180, 180, 175, 0.02) 2px,
+        rgba(180, 180, 175, 0.02) 4px
+      );
+    pointer-events: none;
+    opacity: 0.6;
+  }
+}
+
+/* Överskriv bg-white med marmor-textur */
+@layer components {
+  .bg-white {
+    background-color: #f5f5f0;
+    background-image: 
+      /* Marmor-ådror och mönster */
+      radial-gradient(ellipse at 20% 50%, rgba(200, 200, 195, 0.4) 0%, transparent 60%),
+      radial-gradient(ellipse at 80% 80%, rgba(180, 180, 175, 0.3) 0%, transparent 60%),
+      radial-gradient(ellipse at 40% 20%, rgba(220, 220, 215, 0.35) 0%, transparent 60%),
+      radial-gradient(ellipse at 60% 40%, rgba(190, 190, 185, 0.25) 0%, transparent 60%),
+      radial-gradient(ellipse at 10% 70%, rgba(210, 210, 205, 0.2) 0%, transparent 50%),
+      /* Gradient för djup */
+      linear-gradient(135deg, rgba(250, 250, 245, 0.8) 0%, rgba(240, 240, 235, 0.6) 50%, rgba(250, 250, 245, 0.8) 100%),
+      /* Fin struktur */
+      repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 3px,
+        rgba(200, 200, 195, 0.04) 3px,
+        rgba(200, 200, 195, 0.04) 6px
+      ),
+      repeating-linear-gradient(
+        90deg,
+        transparent,
+        transparent 3px,
+        rgba(180, 180, 175, 0.03) 3px,
+        rgba(180, 180, 175, 0.03) 6px
+      );
+    background-size: 
+      120% 120%,
+      100% 100%,
+      110% 110%,
+      130% 130%,
+      90% 90%,
+      200% 200%,
+      100% 100%,
+      100% 100%;
+    background-position:
+      0% 0%,
+      100% 100%,
+      50% 50%,
+      30% 70%,
+      80% 20%,
+      0% 0%,
+      0% 0%,
+      0% 0%;
+    position: relative;
+    isolation: isolate;
+  }
+  
+  /* Se till att innehåll ligger ovanpå marmor-texturen */
+  .bg-white > * {
+    position: relative;
+    z-index: 1;
+  }
+  
+  /* Marmor-textur för beige/rökfärgade kort (startsidan) */
+  .bg-marble-beige {
+    background-color: #F5F5DC;
+    background-image: 
+      /* Marmor-ådror och mönster */
+      radial-gradient(ellipse at 20% 50%, rgba(220, 220, 210, 0.4) 0%, transparent 60%),
+      radial-gradient(ellipse at 80% 80%, rgba(200, 200, 190, 0.3) 0%, transparent 60%),
+      radial-gradient(ellipse at 40% 20%, rgba(240, 240, 230, 0.35) 0%, transparent 60%),
+      radial-gradient(ellipse at 60% 40%, rgba(210, 210, 200, 0.25) 0%, transparent 60%),
+      radial-gradient(ellipse at 10% 70%, rgba(230, 230, 220, 0.2) 0%, transparent 50%),
+      /* Gradient för djup */
+      linear-gradient(135deg, rgba(255, 255, 250, 0.8) 0%, rgba(245, 245, 240, 0.6) 50%, rgba(255, 255, 250, 0.8) 100%),
+      /* Fin struktur */
+      repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 3px,
+        rgba(220, 220, 210, 0.04) 3px,
+        rgba(220, 220, 210, 0.04) 6px
+      ),
+      repeating-linear-gradient(
+        90deg,
+        transparent,
+        transparent 3px,
+        rgba(200, 200, 190, 0.03) 3px,
+        rgba(200, 200, 190, 0.03) 6px
+      );
+    background-size: 
+      120% 120%,
+      100% 100%,
+      110% 110%,
+      130% 130%,
+      90% 90%,
+      200% 200%,
+      100% 100%,
+      100% 100%;
+    background-position:
+      0% 0%,
+      100% 100%,
+      50% 50%,
+      30% 70%,
+      80% 20%,
+      0% 0%,
+      0% 0%,
+      0% 0%;
+    position: relative;
+    isolation: isolate;
+  }
+  
+  .bg-marble-beige > * {
+    position: relative;
+    z-index: 1;
+  }
+}
+
+:root {
+  --foreground-rgb: 0, 0, 0;
+  --background-start-rgb: 214, 219, 220;
+  --background-end-rgb: 255, 255, 255;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --foreground-rgb: 255, 255, 255;
+    --background-start-rgb: 0, 0, 0;
+    --background-end-rgb: 0, 0, 0;
+  }
+}
+
+body {
+  color: #2D5016;
+  background: #E8E8D8;
+}
+
+/* Modern kalender styling */
+.react-datepicker {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+  border: none;
+  border-radius: 1rem;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  overflow: hidden;
+  background: white;
+}
+
+.react-datepicker__header {
+  background: linear-gradient(135deg, #2D5016 0%, #3a6b1f 100%);
+  border-bottom: none;
+  border-radius: 0;
+  padding: 1.25rem 1rem 0.75rem;
+  position: relative;
+}
+
+.react-datepicker__header::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+}
+
+.react-datepicker__current-month {
+  color: white;
+  font-weight: 700;
+  font-size: 1rem;
+  margin-bottom: 0.75rem;
+  text-transform: capitalize;
+  letter-spacing: 0.5px;
+}
+
+.react-datepicker__day-names {
+  display: flex;
+  justify-content: space-around;
+  margin-top: 0.5rem;
+  padding-bottom: 0.5rem;
+}
+
+.react-datepicker__day-name {
+  color: rgba(255, 255, 255, 0.95);
+  font-weight: 600;
+  font-size: 0.75rem;
+  width: 2.5rem;
+  line-height: 2.5rem;
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.react-datepicker__month {
+  margin: 0.75rem;
+  padding: 0.5rem 0;
+}
+
+.react-datepicker__week {
+  display: flex;
+  justify-content: space-around;
+  margin: 0.25rem 0;
+}
+
+.react-datepicker__day {
+  width: 2.5rem;
+  height: 2.5rem;
+  line-height: 2.5rem;
+  margin: 0.125rem;
+  border-radius: 0.75rem;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  font-weight: 500;
+  font-size: 0.875rem;
+  color: #374151;
+  position: relative;
+}
+
+.react-datepicker__day:hover {
+  background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
+  color: #2D5016;
+  transform: scale(1.1);
+  box-shadow: 0 4px 6px -1px rgba(45, 80, 22, 0.2);
+  font-weight: 600;
+}
+
+.react-datepicker__day--selected,
+.react-datepicker__day--keyboard-selected {
+  background: linear-gradient(135deg, #2D5016 0%, #3a6b1f 100%);
+  color: white;
+  border-radius: 0.75rem;
+  font-weight: 700;
+  box-shadow: 0 4px 12px rgba(45, 80, 22, 0.4);
+  transform: scale(1.05);
+}
+
+.react-datepicker__day--selected:hover,
+.react-datepicker__day--keyboard-selected:hover {
+  background: linear-gradient(135deg, #1e3a0f 0%, #2D5016 100%);
+  transform: scale(1.1);
+  box-shadow: 0 6px 16px rgba(45, 80, 22, 0.5);
+}
+
+.react-datepicker__day--today {
+  font-weight: 700;
+  background: linear-gradient(135deg, rgba(45, 80, 22, 0.1) 0%, rgba(45, 80, 22, 0.15) 100%);
+  border: 2px solid #2D5016;
+  color: #2D5016;
+}
+
+.react-datepicker__day--today:hover {
+  background: linear-gradient(135deg, rgba(45, 80, 22, 0.2) 0%, rgba(45, 80, 22, 0.25) 100%);
+}
+
+.react-datepicker__day--disabled {
+  color: #d1d5db;
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.react-datepicker__day--disabled:hover {
+  background: transparent;
+  transform: none;
+  box-shadow: none;
+}
+
+.react-datepicker__day--outside-month {
+  color: #d1d5db;
+  opacity: 0.5;
+}
+
+.react-datepicker__navigation {
+  top: 1rem;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  transition: all 0.2s;
+}
+
+.react-datepicker__navigation:hover {
+  background: rgba(255, 255, 255, 0.2);
+  transform: scale(1.1);
+}
+
+.react-datepicker__navigation-icon::before {
+  border-color: white;
+  border-width: 2px 2px 0 0;
+  top: 0.5rem;
+  width: 0.5rem;
+  height: 0.5rem;
+}
+
+.react-datepicker__navigation:hover *::before {
+  border-color: rgba(255, 255, 255, 1);
+}
+
+.react-datepicker__triangle {
+  display: none;
+}
+
+.react-datepicker__input-container input {
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.react-datepicker__input-container input:focus {
+  box-shadow: 0 0 0 3px rgba(45, 80, 22, 0.1);
+}
+
+.react-datepicker__month-container {
+  background: white;
+}
+
+.react-datepicker__day--range-start,
+.react-datepicker__day--range-end {
+  background: linear-gradient(135deg, #2D5016 0%, #3a6b1f 100%);
+  color: white;
+  font-weight: 700;
+}
+
+.react-datepicker__day--in-range {
+  background: linear-gradient(135deg, rgba(45, 80, 22, 0.1) 0%, rgba(45, 80, 22, 0.15) 100%);
+  color: #2D5016;
+  border-radius: 0;
+}
+
+.react-datepicker__day--in-selecting-range {
+  background: linear-gradient(135deg, rgba(45, 80, 22, 0.15) 0%, rgba(45, 80, 22, 0.2) 100%);
+}
+
+/* Modern månadskalender styling */
+.modern-month-calendar {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+}
+
+.modern-month-calendar .react-datepicker__header {
+  background: linear-gradient(135deg, #2D5016 0%, #3a6b1f 100%);
+  border-bottom: none;
+  border-radius: 0;
+  padding: 0.5rem 0.75rem 0.375rem;
+  position: relative;
+}
+
+.modern-month-calendar .react-datepicker__header::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+}
+
+.modern-month-calendar .react-datepicker__current-month {
+  color: white;
+  font-weight: 700;
+  font-size: 0.75rem;
+  margin-bottom: 0.25rem;
+  text-transform: capitalize;
+  letter-spacing: 0.5px;
+}
+
+.modern-month-calendar .react-datepicker__month-container {
+  background: white;
+}
+
+.modern-month-calendar .react-datepicker__month {
+  margin: 0.75rem;
+  padding: 0.5rem 0;
+}
+
+.modern-month-calendar .react-datepicker__month-text {
+  display: inline-block;
+  width: calc(33.333% - 0.5rem);
+  margin: 0.25rem;
+  padding: 0.75rem 0.5rem;
+  text-align: center;
+  border-radius: 0.75rem;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  font-weight: 500;
+  font-size: 0.875rem;
+  color: #374151;
+  cursor: pointer;
+  position: relative;
+  text-transform: capitalize;
+}
+
+.modern-month-calendar .react-datepicker__month-text:hover {
+  background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
+  color: #2D5016;
+  transform: scale(1.05);
+  box-shadow: 0 4px 6px -1px rgba(45, 80, 22, 0.2);
+  font-weight: 600;
+}
+
+.modern-month-calendar .react-datepicker__month-text--selected,
+.modern-month-calendar .react-datepicker__month-text--keyboard-selected {
+  background: linear-gradient(135deg, #2D5016 0%, #3a6b1f 100%);
+  color: white;
+  border-radius: 0.75rem;
+  font-weight: 700;
+  box-shadow: 0 4px 12px rgba(45, 80, 22, 0.4);
+  transform: scale(1.05);
+}
+
+.modern-month-calendar .react-datepicker__month-text--selected:hover,
+.modern-month-calendar .react-datepicker__month-text--keyboard-selected:hover {
+  background: linear-gradient(135deg, #1e3a0f 0%, #2D5016 100%);
+  transform: scale(1.1);
+  box-shadow: 0 6px 16px rgba(45, 80, 22, 0.5);
+}
+
+.modern-month-calendar .react-datepicker__month-text--disabled {
+  color: #d1d5db;
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.modern-month-calendar .react-datepicker__month-text--disabled:hover {
+  background: transparent;
+  transform: none;
+  box-shadow: none;
+}
+
+.modern-month-calendar .react-datepicker__navigation {
+  top: 0.5rem;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  transition: all 0.2s;
+}
+
+.modern-month-calendar .react-datepicker__navigation:hover {
+  background: rgba(255, 255, 255, 0.2);
+  transform: scale(1.1);
+}
+
+.modern-month-calendar .react-datepicker__navigation-icon::before {
+  border-color: white;
+  border-width: 2px 2px 0 0;
+  top: 0.375rem;
+  width: 0.4rem;
+  height: 0.4rem;
+}
+
+.modern-month-calendar .react-datepicker__navigation:hover *::before {
+  border-color: rgba(255, 255, 255, 1);
+}
+
+/* Säkerställ att datepicker alltid ligger över kort/sektioner */
+.react-datepicker-popper {
+  z-index: 99999 !important;
+}
+
+.react-datepicker__portal {
+  z-index: 99999 !important;
+}
