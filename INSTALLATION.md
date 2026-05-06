@@ -39,7 +39,7 @@ Efter `npx prisma db push` kan du fylla på testkonton (lösenordet kan sättas 
 npx prisma db seed
 ```
 
-Standardlösenord: `demo123` (sätt eget med `SEED_PASSWORD=dittLösenord npx prisma db seed`).
+(Kör `node prisma/seed.cjs` via Prisma.) Standardlösenord: `demo123` (sätt eget med `SEED_PASSWORD=dittLösenord npx prisma db seed`). På **Vercel** körs seed automatiskt vid varje build om kontona saknas.
 
 | Roll | E-post | Inloggning på sajten |
 |------|--------|----------------------|
@@ -98,7 +98,7 @@ Du kan i stället skapa **Web Service** + **PostgreSQL** för hand och sätta sa
    - `DATABASE_URL` – anslutningssträng till PostgreSQL (t.ex. [Neon](https://neon.tech), [Supabase](https://supabase.com) eller en Render Postgres **External Database URL** om du tillåter extern åtkomst).
    - `JWT_SECRET` – samma typ av hemlighet som på Render (egen för miljön om du kör separata databaser).
    - `NEXT_PUBLIC_BASE_URL` – din Vercel-URL, t.ex. `https://tipelaps.vercel.app`.
-3. Vercel använder `vercel.json` **buildCommand** (`prisma db push` + `next build`). Säkerställ att databasen är tom eller kompatibel vid första deploy.
+3. Vercel använder `vercel.json` **buildCommand**: `prisma db push`, sedan **`prisma db seed`** (skapar `demo@admin.se` / `demo@personal.se` om de saknas), sedan `next build`.
 
 **OBS:** Uppladdade filer (loggor, profilbilder, dokument) sparas på serverns disk; på Vercel är den oftast **tillfällig**. För produktion bör filer ligga i objektlagring (S3, Cloudinary, m.m.) – det är inte konfigurerat i den här mallen.
 

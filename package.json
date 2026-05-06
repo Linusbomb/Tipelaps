@@ -10,14 +10,14 @@
     "dev": "next dev",
     "dev:clean": "node scripts/clean-next.js && next dev",
     "build": "next build",
-    "render-build": "prisma generate && prisma db push && next build",
-    "vercel-build": "prisma generate && prisma db push && next build",
+    "render-build": "prisma generate && prisma db push && prisma db seed && next build",
+    "vercel-build": "prisma generate && prisma db push && prisma db seed && next build",
     "start": "next start",
     "lint": "next lint",
     "db:seed": "prisma db seed"
   },
   "prisma": {
-    "seed": "tsx prisma/seed.ts"
+    "seed": "node prisma/seed.cjs"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",

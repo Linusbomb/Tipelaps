@@ -1,5 +1,6 @@
-import { PrismaClient } from '@prisma/client'
-import bcrypt from 'bcryptjs'
+/* eslint-disable @typescript-eslint/no-require-imports */
+const { PrismaClient } = require('@prisma/client')
+const bcrypt = require('bcryptjs')
 
 const prisma = new PrismaClient()
 
@@ -7,7 +8,7 @@ const ADMIN_EMAIL = 'demo@admin.se'
 const EMPLOYEE_EMAIL = 'demo@personal.se'
 const DEFAULT_PASSWORD = 'demo123'
 
-async function hashPassword(password: string) {
+async function hashPassword(password) {
   return bcrypt.hash(password, 10)
 }
 
@@ -54,13 +55,10 @@ async function main() {
   })
 
   console.log('')
-  console.log('Klart. Testkonton (byt lösenord i produktion):')
+  console.log('Seed klart. Testkonton:')
   console.log('  Admin:    ', ADMIN_EMAIL)
   console.log('  Personal: ', EMPLOYEE_EMAIL)
   console.log('  Lösenord: ', password)
-  console.log('')
-  console.log('Logga in via startsidan: Admin resp. Personal.')
-  console.log('Valfritt: SEED_PASSWORD=annatLösen npx prisma db seed')
 }
 
 main()
