@@ -33,14 +33,44 @@ npm run dev
 
 ---
 
-## Deploy: Render (nytt projekt)
+## Deploy: Render (checklista)
 
-1. Logga in på [Render](https://render.com) och koppla ditt GitHub-konto.
-2. **New → Blueprint** (eller *Infrastructure as Code*), välj repot `Linusbomb/Tipelaps` och gren `main`.
-3. Render läser `render.yaml`, skapar **PostgreSQL** och **web service**. Efter första deploy: sätt **manuellt** `JWT_SECRET` (stark slumpsträng) och `NEXT_PUBLIC_BASE_URL` till din Render-URL (t.ex. `https://tidrapportering-app.onrender.com`).
-4. Valfria SMTP-variabler för e-post.
+Blueprint-filen `render.yaml` skapar **en web service** (`tidrapportering-app`) och **PostgreSQL** (`tidrapportering-db`) i **Frankfurt** (EU). `DATABASE_URL` sätts automatiskt från databasen.
 
-Bygget kör `prisma db push` så schemat skapas i databasen automatiskt.
+### Första gången (Blueprint från GitHub)
+
+1. [Render Dashboard](https://dashboard.render.com) → logga in → koppla **GitHub**.
+2. **New +** → **Blueprint** → välj repot **`Linusbomb/Tipelaps`** (samma repo där `render.yaml` ligger i roten).
+3. Granska förslaget (web + Postgres) → **Apply** / skapa resurserna.
+4. Vänta tills **första deploy** av webbtjänsten är klar (bygget kör `npm ci`, `prisma generate`, `prisma db push`, `next build`).
+
+### Obligatoriska miljövariabler (efter du har din publika URL)
+
+Öppna webbtjänsten **tidrapportering-app** → **Environment**:
+
+| Nyckel | Värde |
+|--------|--------|
+| `JWT_SECRET` | Lång slumpmässig sträng (minst ~32 tecken). Exempel i PowerShell: `[guid]::NewGuid().ToString() + [guid]::NewGuid().ToString()` |
+| `NEXT_PUBLIC_BASE_URL` | Exakt din Render-URL med `https://`, t.ex. `https://tidrapportering-app.onrender.com` (kopiera från webbtjänstens **URL** på översikten). |
+
+Spara → Render startar om tjänsten (eller kör **Manual Deploy** om inget händer).
+
+Utan `JWT_SECRET` fungerar inte inloggning/token säkert. Utan korrekt `NEXT_PUBLIC_BASE_URL` kan länkar i e-post (lösenordsåterställning m.m.) peka fel.
+
+### Valfritt (e-post)
+
+Sätt `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` om du vill skicka riktiga mail från Render.
+
+### Felsökning
+
+- **Bygget faller på `prisma db push`:** kontrollera att Postgres-instansen är skapad och att `DATABASE_URL` finns under Environment (från blueprint ska den vara kopplad automatiskt). Synka om blueprint om du ändrat `render.yaml`.
+- **502 / health check:** öppna **Logs** på webbtjänsten. Kontrollera att `npm run start` körs och att startsidan `/` svarar (health check använder `/`).
+- **Gratis/avstängd:** Render pausar ibland gratis web services efter inaktivitet; första besök efter paus kan ta en stund.
+- **Uppladdade filer:** lagras på webbtjänstens disk och kan **försvinna vid ny deploy** om du inte [lägger till persistent disk](https://docs.render.com/docs/disks) eller flyttar filer till objektlagring.
+
+### Redan skapat tjänster manuellt?
+
+Du kan i stället skapa **Web Service** + **PostgreSQL** för hand och sätta samma build/start-kommandon som i `render.yaml`, samt klistra in **Internal Database URL** som `DATABASE_URL`. Blueprint är bara det snabbaste sättet att få samma setup varje gång.
 
 ---
 

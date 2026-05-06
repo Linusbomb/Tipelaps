@@ -3,6 +3,9 @@ services:
     name: tidrapportering-app
     runtime: node
     plan: starter
+    region: frankfurt
+    branch: main
+    repo: https://github.com/Linusbomb/Tipelaps
     buildCommand: npm ci && npm run render-build
     startCommand: npm run start
     healthCheckPath: /
@@ -30,5 +33,6 @@ services:
 
 databases:
   - name: tidrapportering-db
+    region: frankfurt
     databaseName: tidrapportering
     user: tidrapportering

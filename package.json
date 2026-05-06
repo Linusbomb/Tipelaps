@@ -2,6 +2,9 @@
   "name": "tidrapportering-app",
   "version": "1.0.0",
   "private": true,
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "scripts": {
     "clean": "node scripts/clean-next.js",
     "dev": "next dev",
