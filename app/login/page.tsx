@@ -15,6 +15,7 @@ function LoginForm() {
   const [loading, setLoading] = useState(false)
   const [success, setSuccess] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
+  const [rememberCredentials, setRememberCredentials] = useState(false)
   const [userType, setUserType] = useState<'admin' | 'employee' | null>(null)
 
   useEffect(() => {
@@ -40,6 +41,9 @@ function LoginForm() {
     if (type === 'admin' || type === 'employee') {
       setUserType(type)
     }
+    if (localStorage.getItem('rememberLoginDecision') === 'accepted') {
+      setRememberCredentials(true)
+    }
   }, [searchParams])
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -53,19 +57,29 @@ function LoginForm() {
       const response = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
         body: JSON.stringify({
           ...formData,
           loginType: userType,
         }),
       })
 
-      console.log('Svar från server:', response.status, response.statusText)
-      
-      const data = await response.json()
-      console.log('Data från server:', data)
+      const raw = await response.text()
+      let data: { error?: string; token?: string; user?: unknown } = {}
+      if (raw) {
+        try {
+          data = JSON.parse(raw)
+        } catch {
+          throw new Error(
+            response.ok
+              ? 'Ogiltigt svar från servern.'
+              : `Serverfel (${response.status}). Försök igen om en stund.`
+          )
+        }
+      }
 
       if (!response.ok) {
-        throw new Error(data.error || 'Inloggning misslyckades')
+        throw new Error(data.error || `Inloggning misslyckades (${response.status})`)
       }
 
       if (!data.token || !data.user) {
@@ -81,28 +95,15 @@ function LoginForm() {
         throw new Error('Detta konto är Admin. Logga in via Admin-rutan istället.')
       }
 
-      // Fråga endast första gången om inloggningsuppgifter ska sparas
-      const rememberDecision = localStorage.getItem('rememberLoginDecision')
-      if (!rememberDecision) {
-        const shouldSave = window.confirm(
-          'Vill du spara e-postadress och lösenord på den här enheten?'
-        )
-        localStorage.setItem('rememberLoginDecision', shouldSave ? 'accepted' : 'declined')
-
-        if (shouldSave) {
-          localStorage.setItem(
-            'savedLoginCredentials',
-            JSON.stringify({ email: formData.email, password: formData.password })
-          )
-        } else {
-          localStorage.removeItem('savedLoginCredentials')
-        }
-      } else if (rememberDecision === 'accepted') {
-        // Om användaren redan godkänt, uppdatera sparade uppgifter vid lyckad inloggning
+      if (rememberCredentials) {
+        localStorage.setItem('rememberLoginDecision', 'accepted')
         localStorage.setItem(
           'savedLoginCredentials',
           JSON.stringify({ email: formData.email, password: formData.password })
         )
+      } else {
+        localStorage.removeItem('savedLoginCredentials')
+        localStorage.removeItem('rememberLoginDecision')
       }
 
       // Spara token i localStorage
@@ -253,6 +254,20 @@ function LoginForm() {
                 </button>
               </div>
             </div>
+          </div>
+
+          <div className="flex items-center">
+            <input
+              id="remember"
+              name="remember"
+              type="checkbox"
+              checked={rememberCredentials}
+              onChange={(e) => setRememberCredentials(e.target.checked)}
+              className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+            />
+            <label htmlFor="remember" className="ml-2 block text-sm text-gray-700">
+              Spara e-post och lösenord på den här enheten
+            </label>
           </div>
 
           <div>
