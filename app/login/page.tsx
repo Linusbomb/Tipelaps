@@ -12,6 +12,12 @@ type LoginResponseUser = {
   companyId: string | null
 }
 
+type LoginApiResponse = {
+  error?: string
+  token?: string
+  user?: LoginResponseUser
+}
+
 function LoginForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -73,10 +79,10 @@ function LoginForm() {
       })
 
       const raw = await response.text()
-      let data: { error?: string; token?: string; user?: LoginResponseUser } = {}
+      let data: LoginApiResponse = {}
       if (raw) {
         try {
-          data = JSON.parse(raw)
+          data = JSON.parse(raw) as LoginApiResponse
         } catch {
           throw new Error(
             response.ok
@@ -90,11 +96,13 @@ function LoginForm() {
         throw new Error(data.error || `Inloggning misslyckades (${response.status})`)
       }
 
-      if (!data.token || !data.user) {
+      const token = data.token
+      const user = data.user
+      if (!token || !user || typeof user.role !== 'string') {
         throw new Error('Ogiltigt svar från servern')
       }
 
-      const isAdminUser = data.user.role === 'ENTREPRENEUR' || data.user.role === 'PAYROLL_COORDINATOR'
+      const isAdminUser = user.role === 'ENTREPRENEUR' || user.role === 'PAYROLL_COORDINATOR'
 
       if (userType === 'admin' && !isAdminUser) {
         throw new Error('Detta konto är Personal. Logga in via Personal-rutan istället.')
@@ -116,8 +124,8 @@ function LoginForm() {
 
       // Spara token i localStorage
       try {
-        localStorage.setItem('token', data.token)
-        localStorage.setItem('user', JSON.stringify(data.user))
+        localStorage.setItem('token', token)
+        localStorage.setItem('user', JSON.stringify(user))
         console.log('Token och användardata sparade i localStorage')
       } catch (storageError) {
         console.error('Fel vid sparande i localStorage:', storageError)
