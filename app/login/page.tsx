@@ -97,11 +97,18 @@ function LoginForm() {
       }
 
       const token = data.token
-      const user = data.user
-      if (!token || !user || typeof user.role !== 'string') {
+      const userPayload = data.user
+      if (typeof token !== 'string' || token.length === 0) {
         throw new Error('Ogiltigt svar från servern')
       }
-
+      if (
+        userPayload == null ||
+        typeof userPayload !== 'object' ||
+        !('role' in userPayload)
+      ) {
+        throw new Error('Ogiltigt svar från servern')
+      }
+      const user: LoginResponseUser = userPayload as LoginResponseUser
       const isAdminUser = user.role === 'ENTREPRENEUR' || user.role === 'PAYROLL_COORDINATOR'
 
       if (userType === 'admin' && !isAdminUser) {
