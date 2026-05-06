@@ -4,6 +4,14 @@ import { useState, useEffect, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 
+type LoginResponseUser = {
+  id: string
+  name: string
+  email: string
+  role: string
+  companyId: string | null
+}
+
 function LoginForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -65,7 +73,7 @@ function LoginForm() {
       })
 
       const raw = await response.text()
-      let data: { error?: string; token?: string; user?: unknown } = {}
+      let data: { error?: string; token?: string; user?: LoginResponseUser } = {}
       if (raw) {
         try {
           data = JSON.parse(raw)
