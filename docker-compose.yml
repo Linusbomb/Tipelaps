@@ -6,7 +6,8 @@ services:
       POSTGRES_PASSWORD: timelaps
       POSTGRES_DB: timelaps
     ports:
-      - "5432:5432"
+      # 5433 på värden: undvik krock med lokal PostgreSQL som ofta använder 5432
+      - "5433:5432"
     volumes:
       - timelaps_pg:/var/lib/postgresql/data
 

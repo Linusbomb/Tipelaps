@@ -8,7 +8,7 @@ Appen använder **PostgreSQL** (krävs för t.ex. Vercel och Render). Lokalt enk
 docker compose up -d
 ```
 
-Kopiera `.env.example` till `.env` och anpassa vid behov. Standard-URL matchar `docker-compose.yml`.
+Kopiera `.env.example` till `.env` och anpassa vid behov. Postgres exponeras på **värd-port 5433** (inte 5432) om du har en lokal PostgreSQL som redan använder 5432.
 
 ## Steg 2: Installera beroenden
 
