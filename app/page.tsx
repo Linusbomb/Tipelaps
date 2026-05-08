@@ -15,7 +15,7 @@ export default function Home() {
           <div className="inline-flex items-center mb-5">
             <Image
               src="/lvtech-logo.png"
-              alt="LVtech"
+              alt="TimeLaps"
               width={260}
               height={260}
               className="h-28 sm:h-32 md:h-40 w-auto"
