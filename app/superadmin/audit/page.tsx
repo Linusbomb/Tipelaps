@@ -55,6 +55,7 @@ export default function SuperAdminAuditPage() {
   const [data, setData] = useState<ListResponse | null>(null)
   const [page, setPage] = useState(0)
   const [fetching, setFetching] = useState(false)
+  const [exportingCsv, setExportingCsv] = useState(false)
 
   useEffect(() => {
     const t = localStorage.getItem('token')
@@ -124,6 +125,42 @@ export default function SuperAdminAuditPage() {
     setAppliedFilters({ ...filters })
   }
 
+  async function handleExportCsv() {
+    if (!token) return
+    setExportingCsv(true)
+    setError(null)
+    try {
+      const params = new URLSearchParams()
+      if (appliedFilters.action) params.set('action', appliedFilters.action)
+      if (appliedFilters.actorEmail) params.set('actorEmail', appliedFilters.actorEmail)
+      if (appliedFilters.companyId) params.set('companyId', appliedFilters.companyId)
+      if (appliedFilters.ipAddress) params.set('ipAddress', appliedFilters.ipAddress)
+      if (appliedFilters.since) params.set('since', new Date(appliedFilters.since).toISOString())
+      if (appliedFilters.until) params.set('until', new Date(appliedFilters.until).toISOString())
+
+      const res = await fetch(`/api/superadmin/audit/export?${params.toString()}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data?.error || 'Kunde inte exportera CSV')
+      }
+      const blob = await res.blob()
+      const dlUrl = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = dlUrl
+      a.download = `timelaps-audit-${new Date().toISOString().slice(0, 10)}.csv`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(dlUrl)
+    } catch (err: any) {
+      setError(err?.message || 'Kunde inte exportera CSV')
+    } finally {
+      setExportingCsv(false)
+    }
+  }
+
   function resetFilters() {
     const empty = { action: '', actorEmail: '', companyId: '', ipAddress: '', since: '', until: '' }
     setFilters(empty)
@@ -159,11 +196,21 @@ export default function SuperAdminAuditPage() {
               {user?.email} · Alla säkerhetshändelser i systemet, senaste först.
             </p>
           </div>
-          {data && (
-            <p className="text-sm text-gray-700">
-              {data.total} totalt · sida {page + 1} av {totalPages}
-            </p>
-          )}
+          <div className="flex flex-col items-end gap-2">
+            {data && (
+              <p className="text-sm text-gray-700">
+                {data.total} totalt · sida {page + 1} av {totalPages}
+              </p>
+            )}
+            <button
+              type="button"
+              onClick={handleExportCsv}
+              disabled={exportingCsv}
+              className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+            >
+              {exportingCsv ? 'Förbereder…' : 'Exportera (CSV)'}
+            </button>
+          </div>
         </div>
 
         {error && (
