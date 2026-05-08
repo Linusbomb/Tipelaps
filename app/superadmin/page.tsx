@@ -323,7 +323,9 @@ export default function SuperAdminPage() {
                   {companies.map((c) => (
                     <tr key={c.id} className="border-t border-gray-200 align-top">
                       <td className="py-3 pr-4 font-medium" style={{ color: PRIMARY }}>
-                        {c.name}
+                        <Link href={`/superadmin/companies/${c.id}`} className="hover:underline">
+                          {c.name}
+                        </Link>
                       </td>
                       <td className="py-3 pr-4">
                         <div>{c.owner.name}</div>
@@ -344,14 +346,22 @@ export default function SuperAdminPage() {
                         {new Date(c.createdAt).toLocaleDateString('sv-SE')}
                       </td>
                       <td className="py-3 text-right">
-                        <button
-                          type="button"
-                          onClick={() => handleDelete(c)}
-                          disabled={deletingId === c.id}
-                          className="rounded-md border border-red-300 bg-white px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 disabled:opacity-60"
-                        >
-                          {deletingId === c.id ? 'Raderar…' : 'Radera'}
-                        </button>
+                        <div className="flex justify-end gap-2">
+                          <Link
+                            href={`/superadmin/companies/${c.id}`}
+                            className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                          >
+                            Öppna
+                          </Link>
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(c)}
+                            disabled={deletingId === c.id}
+                            className="rounded-md border border-red-300 bg-white px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 disabled:opacity-60"
+                          >
+                            {deletingId === c.id ? 'Raderar…' : 'Radera'}
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}

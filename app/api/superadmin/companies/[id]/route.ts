@@ -4,6 +4,37 @@ import { requireSuperAdmin } from '@/lib/auth'
 
 export const dynamic = 'force-dynamic'
 
+export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
+  const superAdmin = await requireSuperAdmin(request)
+  if (!superAdmin) {
+    return NextResponse.json({ error: 'Endast superadmin' }, { status: 403 })
+  }
+
+  let body: any
+  try {
+    body = await request.json()
+  } catch {
+    return NextResponse.json({ error: 'Ogiltig JSON' }, { status: 400 })
+  }
+
+  const name = typeof body?.name === 'string' ? body.name.trim() : ''
+  if (!name) {
+    return NextResponse.json({ error: 'Företagsnamn krävs' }, { status: 400 })
+  }
+
+  const existing = await prisma.company.findUnique({ where: { id: params.id } })
+  if (!existing) {
+    return NextResponse.json({ error: 'Företag hittades inte' }, { status: 404 })
+  }
+
+  const updated = await prisma.company.update({
+    where: { id: params.id },
+    data: { name },
+    select: { id: true, name: true, updatedAt: true },
+  })
+  return NextResponse.json(updated)
+}
+
 export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
   const superAdmin = await requireSuperAdmin(request)
   if (!superAdmin) {
