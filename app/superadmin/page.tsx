@@ -186,7 +186,14 @@ export default function SuperAdminPage() {
               Inloggad som <strong>{user?.name}</strong> ({user?.email})
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
+            <Link
+              href="/superadmin/audit"
+              className="rounded-md px-4 py-2 text-sm font-semibold text-white"
+              style={{ backgroundColor: PRIMARY }}
+            >
+              Revisionslogg
+            </Link>
             <Link
               href="/"
               className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"

@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { verifyPassword, generateToken } from '@/lib/auth'
 import { logAudit } from '@/lib/audit'
+import {
+  checkLoginRateLimit,
+  getRequestIp,
+  notifyIfNewDeviceForAdmin,
+} from '@/lib/securityAlerts'
 
 export const dynamic = 'force-dynamic'
 
@@ -14,6 +19,30 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: 'E-post och lösenord krävs' },
         { status: 400 }
+      )
+    }
+
+    const ipAddress = getRequestIp(request.headers)
+
+    const rate = await checkLoginRateLimit(String(email).toLowerCase(), ipAddress)
+    if (!rate.allowed) {
+      await logAudit({
+        action: 'LOGIN_FAILURE',
+        actor: { email: String(email) },
+        details: { reason: 'rate_limited', kind: rate.reason },
+        request,
+      })
+      return NextResponse.json(
+        {
+          error:
+            rate.reason === 'email'
+              ? 'För många misslyckade försök på detta konto. Vänta några minuter eller återställ lösenordet.'
+              : 'För många misslyckade försök från din IP. Vänta några minuter och försök igen.',
+        },
+        {
+          status: 429,
+          headers: { 'Retry-After': String(rate.retryAfterSeconds) },
+        }
       )
     }
 
@@ -68,7 +97,8 @@ export async function POST(request: NextRequest) {
     }
 
     const isSuperAdmin = user.role === 'SUPERADMIN'
-    const isAdminUser = isSuperAdmin || user.role === 'ENTREPRENEUR' || user.role === 'PAYROLL_COORDINATOR'
+    const isAdminUser =
+      isSuperAdmin || user.role === 'ENTREPRENEUR' || user.role === 'PAYROLL_COORDINATOR'
     if (loginType === 'admin' && !isAdminUser) {
       await logAudit({
         action: 'LOGIN_WRONG_LOGIN_TYPE',
@@ -105,6 +135,16 @@ export async function POST(request: NextRequest) {
       details: { loginType: loginType ?? null },
       request,
     })
+
+    // Skicka varning vid ny enhet/IP för admin/superadmin (best-effort, swallowing)
+    void notifyIfNewDeviceForAdmin({
+      userId: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      ipAddress,
+      userAgent: request.headers.get('user-agent'),
+    }).catch((err) => console.error('notifyIfNewDeviceForAdmin failed:', err))
 
     return NextResponse.json({
       token,

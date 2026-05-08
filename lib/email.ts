@@ -232,6 +232,38 @@ export async function sendTimeReportBundleEmail(options: {
   }
 }
 
+/** Generisk säkerhetslarm-e-post. */
+export async function sendSecurityAlertEmail(options: {
+  to: string
+  subject: string
+  bodyHtml: string
+  bodyText: string
+}): Promise<boolean> {
+  try {
+    await transporter.sendMail({
+      from: process.env.SMTP_FROM || process.env.SMTP_USER || 'noreply@timelaps.se',
+      to: options.to,
+      subject: options.subject,
+      html: `<!DOCTYPE html><html><head><meta charset="UTF-8"></head>
+        <body style="font-family:Arial,sans-serif;line-height:1.6;color:#333;">
+          <div style="max-width:600px;margin:0 auto;padding:20px;background-color:#fef3c7;border-left:4px solid #d97706;">
+            <h2 style="color:#7c4a03;margin-top:0;">Säkerhetsvarning – TimeLaps</h2>
+            ${options.bodyHtml}
+            <p style="margin-top:20px;font-size:12px;color:#666;border-top:1px solid #eee;padding-top:10px;">
+              Detta är ett automatiskt säkerhetsmeddelande. Om du inte känner igen aktiviteten,
+              kontakta omedelbart din administratör.
+            </p>
+          </div>
+        </body></html>`,
+      text: `[Säkerhetsvarning – TimeLaps]\n\n${options.bodyText}`,
+    })
+    return true
+  } catch (error) {
+    console.error('Fel vid skickande av säkerhetslarm:', error)
+    return false
+  }
+}
+
 function escapeHtml(s: string): string {
   return s
     .replace(/&/g, '&amp;')
