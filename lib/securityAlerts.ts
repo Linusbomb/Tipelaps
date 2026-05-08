@@ -35,44 +35,61 @@ export async function checkLoginRateLimit(
   email: string,
   ipAddress: string | null
 ): Promise<LoginRateCheck> {
-  const since = new Date(Date.now() - FAILURE_WINDOW_MINUTES * 60 * 1000)
+  // Defensiv: om AuditLog-tabellen inte finns (migration inte deployad) får
+  // rate limiting absolut inte blockera inloggning. Då släpper vi alltid igenom.
+  try {
+    const since = new Date(Date.now() - FAILURE_WINDOW_MINUTES * 60 * 1000)
 
-  const [perEmail, perIp] = await Promise.all([
-    prisma.auditLog.count({
-      where: {
-        action: 'LOGIN_FAILURE',
-        actorEmail: email,
-        createdAt: { gte: since },
-      },
-    }),
-    ipAddress
-      ? prisma.auditLog.count({
-          where: {
-            action: 'LOGIN_FAILURE',
-            ipAddress,
-            createdAt: { gte: since },
-          },
-        })
-      : Promise.resolve(0),
-  ])
+    const [perEmail, perIp] = await Promise.all([
+      prisma.auditLog.count({
+        where: {
+          action: 'LOGIN_FAILURE',
+          actorEmail: email,
+          createdAt: { gte: since },
+        },
+      }),
+      ipAddress
+        ? prisma.auditLog.count({
+            where: {
+              action: 'LOGIN_FAILURE',
+              ipAddress,
+              createdAt: { gte: since },
+            },
+          })
+        : Promise.resolve(0),
+    ])
 
-  if (perEmail >= FAILURE_THRESHOLD_PER_EMAIL) {
-    void maybeSendBruteForceAlert({ kind: 'email', identifier: email, count: perEmail, ipAddress })
-    return {
-      allowed: false,
-      retryAfterSeconds: FAILURE_WINDOW_MINUTES * 60,
-      reason: 'email',
+    if (perEmail >= FAILURE_THRESHOLD_PER_EMAIL) {
+      void maybeSendBruteForceAlert({
+        kind: 'email',
+        identifier: email,
+        count: perEmail,
+        ipAddress,
+      }).catch(() => {})
+      return {
+        allowed: false,
+        retryAfterSeconds: FAILURE_WINDOW_MINUTES * 60,
+        reason: 'email',
+      }
     }
-  }
-  if (ipAddress && perIp >= FAILURE_THRESHOLD_PER_IP) {
-    void maybeSendBruteForceAlert({ kind: 'ip', identifier: ipAddress, count: perIp, ipAddress })
-    return {
-      allowed: false,
-      retryAfterSeconds: FAILURE_WINDOW_MINUTES * 60,
-      reason: 'ip',
+    if (ipAddress && perIp >= FAILURE_THRESHOLD_PER_IP) {
+      void maybeSendBruteForceAlert({
+        kind: 'ip',
+        identifier: ipAddress,
+        count: perIp,
+        ipAddress,
+      }).catch(() => {})
+      return {
+        allowed: false,
+        retryAfterSeconds: FAILURE_WINDOW_MINUTES * 60,
+        reason: 'ip',
+      }
     }
+    return { allowed: true }
+  } catch (err) {
+    console.error('checkLoginRateLimit failed (allowing login):', err)
+    return { allowed: true }
   }
-  return { allowed: true }
 }
 
 async function maybeSendBruteForceAlert(args: {
@@ -143,15 +160,22 @@ export async function notifyIfNewDeviceForAdmin(args: {
   if (!sensitiveRoles.includes(args.role)) return
 
   const since = new Date(Date.now() - NEW_DEVICE_LOOKBACK_DAYS * 24 * 60 * 60 * 1000)
-  const seenBefore = await prisma.auditLog.findFirst({
-    where: {
-      action: 'LOGIN_SUCCESS',
-      actorId: args.userId,
-      ipAddress: args.ipAddress,
-      createdAt: { gte: since },
-    },
-    select: { id: true },
-  })
+  let seenBefore: { id: string } | null = null
+  try {
+    seenBefore = await prisma.auditLog.findFirst({
+      where: {
+        action: 'LOGIN_SUCCESS',
+        actorId: args.userId,
+        ipAddress: args.ipAddress,
+        createdAt: { gte: since },
+      },
+      select: { id: true },
+    })
+  } catch (err) {
+    // AuditLog-tabellen saknas eller annan DB-felmeddelande – tysta och hoppa över
+    console.error('notifyIfNewDeviceForAdmin lookup failed:', err)
+    return
+  }
 
   if (seenBefore) return
 
