@@ -18,10 +18,20 @@ npm install
 
 ## Steg 3: Skapa databastabeller
 
+Projektet använder **Prisma migrations** (versionshanterade SQL-filer i `prisma/migrations/`).
+
 ```bash
 npx prisma generate
-npx prisma db push
+npx prisma migrate deploy
 ```
+
+Vid utveckling när du ändrar `prisma/schema.prisma`:
+
+```bash
+npx prisma migrate dev --name beskrivande_namn
+```
+
+Det skapar en ny migration i `prisma/migrations/` och applicerar den lokalt. Committa migrations-mappen så körs de automatiskt på Vercel/Render vid nästa deploy.
 
 ## Steg 4: Starta utvecklingsservern
 
@@ -61,7 +71,7 @@ Blueprint-filen `render.yaml` skapar **en web service** (`tidrapportering-app`) 
 1. [Render Dashboard](https://dashboard.render.com) → logga in → koppla **GitHub**.
 2. **New +** → **Blueprint** → välj repot **`Linusbomb/Tipelaps`** (samma repo där `render.yaml` ligger i roten).
 3. Granska förslaget (web + Postgres) → **Apply** / skapa resurserna.
-4. Vänta tills **första deploy** av webbtjänsten är klar (bygget kör `npm ci`, `prisma generate`, `prisma db push`, `next build`).
+4. Vänta tills **första deploy** av webbtjänsten är klar (bygget kör `npm ci`, `prisma generate`, `prisma migrate deploy`, `prisma db seed`, `next build`).
 
 ### Obligatoriska miljövariabler (efter du har din publika URL)
 
@@ -82,7 +92,7 @@ Sätt `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` om du vill
 
 ### Felsökning
 
-- **Bygget faller på `prisma db push`:** kontrollera att Postgres-instansen är skapad och att `DATABASE_URL` finns under Environment (från blueprint ska den vara kopplad automatiskt). Synka om blueprint om du ändrat `render.yaml`.
+- **Bygget faller på `prisma migrate deploy`:** kontrollera att Postgres-instansen är skapad och att `DATABASE_URL` finns under Environment (från blueprint ska den vara kopplad automatiskt). Vid `P3005` se avsnittet om baseline ovan.
 - **502 / health check:** öppna **Logs** på webbtjänsten. Kontrollera att `npm run start` körs och att startsidan `/` svarar (health check använder `/`).
 - **Gratis/avstängd:** Render pausar ibland gratis web services efter inaktivitet; första besök efter paus kan ta en stund.
 - **Uppladdade filer:** lagras på webbtjänstens disk och kan **försvinna vid ny deploy** om du inte [lägger till persistent disk](https://docs.render.com/docs/disks) eller flyttar filer till objektlagring.
@@ -100,7 +110,22 @@ Du kan i stället skapa **Web Service** + **PostgreSQL** för hand och sätta sa
    - `DATABASE_URL` – anslutningssträng till PostgreSQL (t.ex. [Neon](https://neon.tech), [Supabase](https://supabase.com) eller en Render Postgres **External Database URL** om du tillåter extern åtkomst).
    - `JWT_SECRET` – samma typ av hemlighet som på Render (egen för miljön om du kör separata databaser).
    - `NEXT_PUBLIC_BASE_URL` – din Vercel-URL, t.ex. `https://tipelaps.vercel.app`.
-3. Vercel använder `vercel.json` **buildCommand**: `prisma db push`, sedan **`prisma db seed`** (skapar `demo@admin.se` / `demo@personal.se` om de saknas), sedan `next build`.
+3. Vercel använder `vercel.json` **buildCommand**: `prisma migrate deploy` (kör versionerade migrations från `prisma/migrations/`), sedan **`prisma db seed`** (skapar `demo@admin.se` / `demo@personal.se` om de saknas), sedan `next build`.
+
+### Viktigt: första gången du byter från `db push` till migrations på en befintlig databas
+
+Om Vercel/Render redan har en Neon-databas med tabeller (skapade via tidigare `prisma db push`), kommer `migrate deploy` säga **`P3005: Database schema is not empty`** eftersom `_prisma_migrations`-tabellen saknas.
+
+**Två val:**
+
+1. **Baseline (rekommenderat – bevarar data):** Kör en gång lokalt mot **samma `DATABASE_URL` som Vercel** för att markera den existerande migrationen som applicerad:
+   ```powershell
+   $env:DATABASE_URL="<din-neon-url>"
+   npx prisma migrate resolve --applied 0_init
+   ```
+   Sedan kommer kommande deploys köra normalt.
+
+2. **Rensa databasen** (förlorar all data – ok om endast demo-konton finns): Töm Neon-databasen via deras konsol och deploya om så skapas allt från migrationen.
 
 **OBS:** Uppladdade filer (loggor, profilbilder, dokument) sparas på serverns disk; på Vercel är den oftast **tillfällig**. För produktion bör filer ligga i objektlagring (S3, Cloudinary, m.m.) – det är inte konfigurerat i den här mallen.
 
