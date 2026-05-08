@@ -15,10 +15,15 @@ export default function RegisterPage() {
     phone: '',
     companyName: '',
   })
+  const [consentAccepted, setConsentAccepted] = useState(false)
 
   const handleEntrepreneurRegister = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
+    if (!consentAccepted) {
+      setError('Du måste godkänna integritetspolicyn för att skapa ett konto.')
+      return
+    }
     setLoading(true)
     try {
       const res = await fetch('/api/auth/register', {
@@ -32,6 +37,7 @@ export default function RegisterPage() {
           phone: form.phone || undefined,
           companyName: form.companyName.trim(),
           role: 'ENTREPRENEUR',
+          consentAccepted: true,
         }),
       })
       const raw = await res.text()
@@ -126,9 +132,32 @@ export default function RegisterPage() {
               />
               <p className="mt-1 text-xs text-gray-500">Minst 8 tecken.</p>
             </div>
+            <label className="flex items-start gap-2 text-sm text-gray-700">
+              <input
+                type="checkbox"
+                required
+                checked={consentAccepted}
+                onChange={(e) => setConsentAccepted(e.target.checked)}
+                className="mt-1"
+              />
+              <span>
+                Jag har läst och godkänner{' '}
+                <Link
+                  href="/integritetspolicy"
+                  className="underline"
+                  style={{ color: '#2D5016' }}
+                  target="_blank"
+                  rel="noopener"
+                >
+                  integritetspolicyn
+                </Link>{' '}
+                och bekräftar att jag, som administratör, är personuppgiftsansvarig för uppgifter
+                om mina anställda.
+              </span>
+            </label>
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || !consentAccepted}
               className="w-full rounded-md py-2 px-4 text-sm font-medium text-white disabled:opacity-50"
               style={{ backgroundColor: '#2D5016' }}
             >

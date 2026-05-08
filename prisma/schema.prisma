@@ -178,3 +178,24 @@ model VacationWeek {
   @@unique([companyId, userId, year, week])
   @@index([companyId, year])
 }
+
+/// Revisionslogg för säkerhetskänsliga händelser (GDPR – ansvar och spårbarhet).
+/// Inga relationer (FK) – så att rader bevaras även om aktör/mål raderas.
+model AuditLog {
+  id          String   @id @default(cuid())
+  createdAt   DateTime @default(now())
+  action      String   // t.ex. LOGIN_SUCCESS, COMPANY_CREATE, IMPERSONATE_START
+  actorId     String?  // användar-id för den som utförde händelsen (null = okänt)
+  actorEmail  String?
+  actorRole   String?
+  targetType  String?  // t.ex. Company, User
+  targetId    String?
+  companyId   String?  // tenant-tillhörighet om relevant
+  ipAddress   String?
+  userAgent   String?
+  details     Json?    // godtyckliga detaljer
+
+  @@index([companyId, createdAt])
+  @@index([actorId, createdAt])
+  @@index([action, createdAt])
+}

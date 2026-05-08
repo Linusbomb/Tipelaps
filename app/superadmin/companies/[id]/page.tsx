@@ -53,6 +53,7 @@ export default function SuperAdminCompanyDetailPage() {
 
   const [impersonating, setImpersonating] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [exporting, setExporting] = useState(false)
 
   useEffect(() => {
     const t = localStorage.getItem('token')
@@ -205,6 +206,36 @@ export default function SuperAdminCompanyDetailPage() {
     }
   }
 
+  async function handleExport() {
+    if (!token || !company) return
+    setExporting(true)
+    setError(null)
+    setInfo(null)
+    try {
+      const res = await fetch(`/api/superadmin/companies/${company.id}/export`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data?.error || 'Kunde inte exportera data')
+      }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `timelaps-foretag-${company.id}.json`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+      setInfo('Export laddades ner. Behandla filen säkert.')
+    } catch (err: any) {
+      setError(err?.message || 'Kunde inte exportera data')
+    } finally {
+      setExporting(false)
+    }
+  }
+
   async function handleDelete() {
     if (!token || !company) return
     if (
@@ -341,7 +372,8 @@ export default function SuperAdminCompanyDetailPage() {
 
           <Card title="Logga in som kundens admin">
             <p className="mb-3 text-xs text-gray-600">
-              Du hamnar i kundens vy med en gul banner högst upp för att återgå.
+              Du hamnar i kundens vy med en gul banner högst upp för att återgå. Tokenen är giltig i
+              1 timme och händelsen skrivs i revisionsloggen.
             </p>
             <button
               type="button"
@@ -350,6 +382,20 @@ export default function SuperAdminCompanyDetailPage() {
               className="rounded-md border border-yellow-500 bg-yellow-100 px-4 py-2 text-sm font-semibold text-yellow-900 hover:bg-yellow-200 disabled:opacity-60"
             >
               {impersonating ? 'Loggar in…' : 'Logga in som ' + company.owner.email}
+            </button>
+          </Card>
+
+          <Card title="Exportera kundens data (GDPR)">
+            <p className="mb-3 text-xs text-gray-600">
+              Ladda ner all data för {company.name} som JSON. Behandla filen säkert.
+            </p>
+            <button
+              type="button"
+              onClick={handleExport}
+              disabled={exporting}
+              className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+            >
+              {exporting ? 'Förbereder…' : 'Ladda ner export'}
             </button>
           </Card>
 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { hashPassword, requireSuperAdmin } from '@/lib/auth'
+import { logAudit } from '@/lib/audit'
 
 export const dynamic = 'force-dynamic'
 
@@ -26,7 +27,6 @@ export async function GET(request: NextRequest) {
     },
   })
 
-  // Antal aktiva (ej avslutade) anställda per företag i en separat query.
   const activeCounts = await prisma.user.groupBy({
     by: ['companyId'],
     where: {
@@ -75,6 +75,7 @@ export async function POST(request: NextRequest) {
     typeof body?.adminEmail === 'string' ? body.adminEmail.trim().toLowerCase() : ''
   const adminPassword = typeof body?.adminPassword === 'string' ? body.adminPassword : ''
   const adminPhone = typeof body?.adminPhone === 'string' ? body.adminPhone.trim() : ''
+  const consentAccepted = body?.consentAccepted === true
 
   if (!companyName || !adminName || !adminEmail || !adminPassword) {
     return NextResponse.json(
@@ -84,6 +85,15 @@ export async function POST(request: NextRequest) {
   }
   if (adminPassword.length < 6) {
     return NextResponse.json({ error: 'Lösenord måste vara minst 6 tecken' }, { status: 400 })
+  }
+  if (!consentAccepted) {
+    return NextResponse.json(
+      {
+        error:
+          'Bekräfta att kunden godkänt integritetspolicy och personuppgiftsbiträdesavtal innan kontot skapas',
+      },
+      { status: 400 }
+    )
   }
 
   const existing = await prisma.user.findUnique({ where: { email: adminEmail } })
@@ -118,6 +128,20 @@ export async function POST(request: NextRequest) {
       select: { id: true, name: true, email: true, role: true },
     })
     return { company, owner: updatedOwner }
+  })
+
+  await logAudit({
+    action: 'COMPANY_CREATE',
+    actor: { id: superAdmin.id, email: superAdmin.email, role: superAdmin.role },
+    targetType: 'Company',
+    targetId: result.company.id,
+    companyId: result.company.id,
+    details: {
+      companyName: result.company.name,
+      ownerEmail: result.owner.email,
+      consentAccepted: true,
+    },
+    request,
   })
 
   return NextResponse.json(

@@ -4,6 +4,7 @@ import './globals.css'
 import 'leaflet/dist/leaflet.css'
 import Navigation from './components/Navigation'
 import ImpersonationBanner from './components/ImpersonationBanner'
+import Footer from './components/Footer'
 import { Providers } from './providers'
 
 const inter = Inter({ subsets: ['latin'] })
@@ -27,6 +28,7 @@ export default function RootLayout({
           <main className="min-h-screen" style={{ backgroundColor: '#E8E8D8' }}>
             {children}
           </main>
+          <Footer />
         </Providers>
       </body>
     </html>

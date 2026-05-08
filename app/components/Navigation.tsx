@@ -6,6 +6,7 @@ import { useLanguage } from '@/contexts/LanguageContext'
 import { useCallback, useEffect, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { decodeJwtPayload } from '@/lib/decodeJwtPayload'
+import { clearLocalSession } from '@/lib/session'
 
 const PROJECTS_BADGE_EVENT = 'projects-badge-refresh'
 
@@ -85,8 +86,7 @@ export default function Navigation() {
   }, [isLoggedIn, userRole, fetchProjectsBadge])
 
   const handleLogout = () => {
-    localStorage.removeItem('token')
-    localStorage.removeItem('user')
+    clearLocalSession({ keepRememberedCredentials: true })
     setIsLoggedIn(false)
     setUserRole(null)
     router.push('/login')

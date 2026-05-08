@@ -130,8 +130,12 @@ function LoginForm() {
         localStorage.removeItem('rememberLoginDecision')
       }
 
-      // Spara token i localStorage
+      // Spara token i localStorage. Rensa eventuell tidigare superadmin-impersonering
+      // så banner inte felaktigt visas efter att en ny session påbörjats.
       try {
+        localStorage.removeItem('superadminToken')
+        localStorage.removeItem('superadminUser')
+        localStorage.removeItem('impersonatedAs')
         localStorage.setItem('token', token)
         localStorage.setItem('user', JSON.stringify(user))
         console.log('Token och användardata sparade i localStorage')

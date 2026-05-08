@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
+import { clearLocalSession } from '@/lib/session'
 
 type SessionUser = {
   id: string
@@ -43,6 +44,7 @@ export default function SuperAdminPage() {
     adminPassword: '',
     adminPhone: '',
   })
+  const [createConsent, setCreateConsent] = useState(false)
 
   useEffect(() => {
     const t = localStorage.getItem('token')
@@ -95,6 +97,12 @@ export default function SuperAdminPage() {
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault()
     if (!token) return
+    if (!createConsent) {
+      setError(
+        'Bekräfta att kunden godkänt integritetspolicy och personuppgiftsbiträdesavtal innan kontot skapas.'
+      )
+      return
+    }
     setCreating(true)
     setError(null)
     try {
@@ -104,7 +112,7 @@ export default function SuperAdminPage() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify(form),
+        body: JSON.stringify({ ...form, consentAccepted: true }),
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
@@ -118,6 +126,7 @@ export default function SuperAdminPage() {
         adminPassword: '',
         adminPhone: '',
       })
+      setCreateConsent(false)
       setShowCreate(false)
     } catch (err: any) {
       setError(err?.message || 'Kunde inte skapa kund')
@@ -150,8 +159,7 @@ export default function SuperAdminPage() {
   }
 
   function handleLogout() {
-    localStorage.removeItem('token')
-    localStorage.removeItem('user')
+    clearLocalSession()
     window.location.href = '/'
   }
 
@@ -279,6 +287,28 @@ export default function SuperAdminPage() {
                   Min 6 tecken. Skicka detta säkert till kunden.
                 </span>
               </label>
+              <label className="sm:col-span-2 flex items-start gap-2 text-sm text-gray-700">
+                <input
+                  type="checkbox"
+                  required
+                  checked={createConsent}
+                  onChange={(e) => setCreateConsent(e.target.checked)}
+                  className="mt-1"
+                />
+                <span>
+                  Jag bekräftar att kunden har tagit del av{' '}
+                  <Link
+                    href="/integritetspolicy"
+                    className="underline"
+                    style={{ color: PRIMARY }}
+                    target="_blank"
+                    rel="noopener"
+                  >
+                    integritetspolicyn
+                  </Link>{' '}
+                  och accepterat personuppgiftsbiträdesavtalet.
+                </span>
+              </label>
               <div className="sm:col-span-2 flex justify-end gap-2 pt-1">
                 <button
                   type="button"
@@ -289,7 +319,7 @@ export default function SuperAdminPage() {
                 </button>
                 <button
                   type="submit"
-                  disabled={creating}
+                  disabled={creating || !createConsent}
                   className="rounded-md px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
                   style={{ backgroundColor: PRIMARY }}
                 >

@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { generateToken, requireSuperAdmin } from '@/lib/auth'
+import { generateImpersonationToken, requireSuperAdmin } from '@/lib/auth'
+import { logAudit } from '@/lib/audit'
 
 export const dynamic = 'force-dynamic'
 
 /**
- * Genererar en JWT för företagets ägare så superadmin kan logga in i kundens vy.
- * Token har samma giltighetstid som vanligt (7 dagar). Klienten ansvarar för att
- * spara superadmins originaltoken så användaren kan återgå.
+ * Genererar en kortlivad JWT (1 timme) för företagets ägare så superadmin kan
+ * logga in i kundens vy. Token markeras som impersonering och innehåller
+ * `actingAs` med superadminens identitet för revisionsspårbarhet.
  */
 export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
   const superAdmin = await requireSuperAdmin(request)
@@ -43,10 +44,28 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     )
   }
 
-  const token = generateToken(owner.id, owner.email, owner.role)
+  const token = generateImpersonationToken(owner.id, owner.email, owner.role, {
+    id: superAdmin.id,
+    email: superAdmin.email,
+  })
+
+  await logAudit({
+    action: 'IMPERSONATE_START',
+    actor: { id: superAdmin.id, email: superAdmin.email, role: superAdmin.role },
+    targetType: 'User',
+    targetId: owner.id,
+    companyId: company.id,
+    details: {
+      companyName: company.name,
+      ownerEmail: owner.email,
+      tokenExpiresIn: '1h',
+    },
+    request,
+  })
 
   return NextResponse.json({
     token,
+    expiresInSeconds: 60 * 60,
     user: {
       id: owner.id,
       name: owner.name,

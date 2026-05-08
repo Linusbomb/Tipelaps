@@ -28,15 +28,54 @@ export function generateToken(userId: string, email: string, role: string): stri
   return jwt.sign({ userId, email, role }, JWT_SECRET, { expiresIn: '7d' })
 }
 
-export function verifyToken(token: string): { userId: string; email: string; role: string } | null {
+/**
+ * Genererar en kortlivad JWT (1 timme) för superadmin-impersonering.
+ * Innehåller `actingAs` så servern kan särskilja vem som faktiskt initierade
+ * sessionen (för revisionslogg) och `imp: true` för att markera typen.
+ */
+export function generateImpersonationToken(
+  userId: string,
+  email: string,
+  role: string,
+  actingAs: { id: string; email: string }
+): string {
+  return jwt.sign(
+    { userId, email, role, imp: true, actingAs },
+    JWT_SECRET,
+    { expiresIn: '1h' }
+  )
+}
+
+export type DecodedToken = {
+  userId: string
+  email: string
+  role: string
+  imp?: boolean
+  actingAs?: { id: string; email: string }
+}
+
+export function verifyToken(token: string): DecodedToken | null {
   try {
     const payload = jwt.verify(token, JWT_SECRET)
     if (typeof payload !== 'object' || payload === null) return null
-    const { userId, email, role } = payload as Record<string, unknown>
+    const { userId, email, role, imp, actingAs } = payload as Record<string, unknown>
     if (typeof userId !== 'string' || typeof email !== 'string' || typeof role !== 'string') {
       return null
     }
-    return { userId, email, role }
+    const decoded: DecodedToken = { userId, email, role }
+    if (imp === true) decoded.imp = true
+    if (
+      actingAs &&
+      typeof actingAs === 'object' &&
+      typeof (actingAs as any).id === 'string' &&
+      typeof (actingAs as any).email === 'string'
+    ) {
+      decoded.actingAs = {
+        id: (actingAs as any).id,
+        email: (actingAs as any).email,
+      }
+    }
+    return decoded
   } catch {
     return null
   }

@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { hashPassword } from '@/lib/auth'
+import { logAudit } from '@/lib/audit'
 
 export const dynamic = 'force-dynamic'
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { name, email, password, phone, companyName, role } = body
+    const { name, email, password, phone, companyName, role, consentAccepted } = body
 
     if (!name || !email || !password) {
       return NextResponse.json(
@@ -16,7 +17,16 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Kontrollera om användaren redan finns
+    if (consentAccepted !== true) {
+      return NextResponse.json(
+        {
+          error:
+            'Du måste godkänna integritetspolicyn och användarvillkoren för att skapa ett konto',
+        },
+        { status: 400 }
+      )
+    }
+
     const existingUser = await prisma.user.findUnique({
       where: { email },
     })
@@ -28,7 +38,6 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Hasha lösenordet
     const hashedPassword = await hashPassword(password)
 
     if (role === 'ENTREPRENEUR') {
@@ -38,7 +47,6 @@ export async function POST(request: NextRequest) {
           { status: 400 }
         )
       }
-      // Skapa entreprenör först
       const user = await prisma.user.create({
         data: {
           name,
@@ -49,22 +57,26 @@ export async function POST(request: NextRequest) {
         },
       })
 
-      // Skapa företag med ownerId
-      await prisma.company.create({
+      const company = await prisma.company.create({
         data: {
           name: companyName,
           ownerId: user.id,
         },
       })
 
-      // Uppdatera användaren med companyId
-      const company = await prisma.company.findUnique({
-        where: { ownerId: user.id },
-      })
-
       await prisma.user.update({
         where: { id: user.id },
-        data: { companyId: company!.id },
+        data: { companyId: company.id },
+      })
+
+      await logAudit({
+        action: 'REGISTER_ENTREPRENEUR',
+        actor: { id: user.id, email: user.email, role: user.role },
+        companyId: company.id,
+        targetType: 'Company',
+        targetId: company.id,
+        details: { companyName: company.name, consentAccepted: true },
+        request,
       })
 
       return NextResponse.json({
@@ -77,7 +89,6 @@ export async function POST(request: NextRequest) {
         },
       })
     } else {
-      // Skapa anställd
       const user = await prisma.user.create({
         data: {
           name,
@@ -86,6 +97,13 @@ export async function POST(request: NextRequest) {
           phone: phone || null,
           role: 'EMPLOYEE',
         },
+      })
+
+      await logAudit({
+        action: 'REGISTER_EMPLOYEE',
+        actor: { id: user.id, email: user.email, role: user.role },
+        details: { consentAccepted: true },
+        request,
       })
 
       return NextResponse.json({

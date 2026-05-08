@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { verifyPassword, generateToken } from '@/lib/auth'
+import { logAudit } from '@/lib/audit'
 
 export const dynamic = 'force-dynamic'
 
@@ -22,6 +23,12 @@ export async function POST(request: NextRequest) {
     })
 
     if (!user) {
+      await logAudit({
+        action: 'LOGIN_FAILURE',
+        actor: { email: String(email) },
+        details: { reason: 'unknown_user', loginType: loginType ?? null },
+        request,
+      })
       return NextResponse.json(
         { error: 'Fel e-post eller lösenord' },
         { status: 401 }
@@ -31,6 +38,13 @@ export async function POST(request: NextRequest) {
     const isValid = await verifyPassword(password, user.password)
 
     if (!isValid) {
+      await logAudit({
+        action: 'LOGIN_FAILURE',
+        actor: { id: user.id, email: user.email, role: user.role },
+        companyId: user.companyId,
+        details: { reason: 'wrong_password', loginType: loginType ?? null },
+        request,
+      })
       return NextResponse.json(
         { error: 'Fel e-post eller lösenord' },
         { status: 401 }
@@ -38,6 +52,12 @@ export async function POST(request: NextRequest) {
     }
 
     if (user.employmentEndedAt != null) {
+      await logAudit({
+        action: 'LOGIN_BLOCKED_ENDED',
+        actor: { id: user.id, email: user.email, role: user.role },
+        companyId: user.companyId,
+        request,
+      })
       return NextResponse.json(
         {
           error:
@@ -50,12 +70,26 @@ export async function POST(request: NextRequest) {
     const isSuperAdmin = user.role === 'SUPERADMIN'
     const isAdminUser = isSuperAdmin || user.role === 'ENTREPRENEUR' || user.role === 'PAYROLL_COORDINATOR'
     if (loginType === 'admin' && !isAdminUser) {
+      await logAudit({
+        action: 'LOGIN_WRONG_LOGIN_TYPE',
+        actor: { id: user.id, email: user.email, role: user.role },
+        companyId: user.companyId,
+        details: { loginType },
+        request,
+      })
       return NextResponse.json(
         { error: 'Detta konto är Personal. Logga in via Personal-rutan istället.' },
         { status: 403 }
       )
     }
     if (loginType === 'employee' && isAdminUser) {
+      await logAudit({
+        action: 'LOGIN_WRONG_LOGIN_TYPE',
+        actor: { id: user.id, email: user.email, role: user.role },
+        companyId: user.companyId,
+        details: { loginType },
+        request,
+      })
       return NextResponse.json(
         { error: 'Detta konto är Admin. Logga in via Admin-rutan istället.' },
         { status: 403 }
@@ -63,6 +97,14 @@ export async function POST(request: NextRequest) {
     }
 
     const token = generateToken(user.id, user.email, user.role)
+
+    await logAudit({
+      action: 'LOGIN_SUCCESS',
+      actor: { id: user.id, email: user.email, role: user.role },
+      companyId: user.companyId,
+      details: { loginType: loginType ?? null },
+      request,
+    })
 
     return NextResponse.json({
       token,

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { hashPassword, requireSuperAdmin } from '@/lib/auth'
+import { logAudit } from '@/lib/audit'
 
 export const dynamic = 'force-dynamic'
 
@@ -27,7 +28,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
 
   const company = await prisma.company.findUnique({
     where: { id: params.id },
-    select: { ownerId: true },
+    select: { id: true, ownerId: true, owner: { select: { email: true } } },
   })
   if (!company) {
     return NextResponse.json({ error: 'Företag hittades inte' }, { status: 404 })
@@ -37,6 +38,16 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   await prisma.user.update({
     where: { id: company.ownerId },
     data: { password: hashed, passwordResetToken: null, passwordResetExpires: null },
+  })
+
+  await logAudit({
+    action: 'COMPANY_OWNER_PASSWORD_RESET',
+    actor: { id: superAdmin.id, email: superAdmin.email, role: superAdmin.role },
+    targetType: 'User',
+    targetId: company.ownerId,
+    companyId: company.id,
+    details: { ownerEmail: company.owner?.email },
+    request,
   })
 
   return NextResponse.json({ message: 'Lösenord uppdaterat' })

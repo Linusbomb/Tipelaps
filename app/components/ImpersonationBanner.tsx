@@ -41,7 +41,19 @@ export default function ImpersonationBanner() {
     }
   }, [])
 
-  function returnToSuperAdmin() {
+  async function returnToSuperAdmin() {
+    const impersonationToken = localStorage.getItem(KEY_TOKEN)
+    if (impersonationToken) {
+      try {
+        await fetch('/api/superadmin/impersonate-end', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${impersonationToken}` },
+        })
+      } catch {
+        // logga misslyckat audit-anrop tyst – återgång ska alltid fungera
+      }
+    }
+
     const superToken = localStorage.getItem(KEY_SUPER_TOKEN)
     const superUser = localStorage.getItem(KEY_SUPER_USER)
     if (superToken && superUser) {
@@ -54,7 +66,7 @@ export default function ImpersonationBanner() {
     localStorage.removeItem(KEY_SUPER_TOKEN)
     localStorage.removeItem(KEY_SUPER_USER)
     localStorage.removeItem(KEY_AS_USER)
-    window.location.href = '/superadmin'
+    window.location.href = superToken ? '/superadmin' : '/login?type=admin'
   }
 
   if (!info) return null

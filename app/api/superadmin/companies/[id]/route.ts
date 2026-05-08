@@ -1,39 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSuperAdmin } from '@/lib/auth'
+import { logAudit } from '@/lib/audit'
 
 export const dynamic = 'force-dynamic'
-
-export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
-  const superAdmin = await requireSuperAdmin(request)
-  if (!superAdmin) {
-    return NextResponse.json({ error: 'Endast superadmin' }, { status: 403 })
-  }
-
-  let body: any
-  try {
-    body = await request.json()
-  } catch {
-    return NextResponse.json({ error: 'Ogiltig JSON' }, { status: 400 })
-  }
-
-  const name = typeof body?.name === 'string' ? body.name.trim() : ''
-  if (!name) {
-    return NextResponse.json({ error: 'Företagsnamn krävs' }, { status: 400 })
-  }
-
-  const existing = await prisma.company.findUnique({ where: { id: params.id } })
-  if (!existing) {
-    return NextResponse.json({ error: 'Företag hittades inte' }, { status: 404 })
-  }
-
-  const updated = await prisma.company.update({
-    where: { id: params.id },
-    data: { name },
-    select: { id: true, name: true, updatedAt: true },
-  })
-  return NextResponse.json(updated)
-}
 
 export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
   const superAdmin = await requireSuperAdmin(request)
@@ -68,6 +38,48 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
   return NextResponse.json(company)
 }
 
+export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
+  const superAdmin = await requireSuperAdmin(request)
+  if (!superAdmin) {
+    return NextResponse.json({ error: 'Endast superadmin' }, { status: 403 })
+  }
+
+  let body: any
+  try {
+    body = await request.json()
+  } catch {
+    return NextResponse.json({ error: 'Ogiltig JSON' }, { status: 400 })
+  }
+
+  const name = typeof body?.name === 'string' ? body.name.trim() : ''
+  if (!name) {
+    return NextResponse.json({ error: 'Företagsnamn krävs' }, { status: 400 })
+  }
+
+  const existing = await prisma.company.findUnique({ where: { id: params.id } })
+  if (!existing) {
+    return NextResponse.json({ error: 'Företag hittades inte' }, { status: 404 })
+  }
+
+  const updated = await prisma.company.update({
+    where: { id: params.id },
+    data: { name },
+    select: { id: true, name: true, updatedAt: true },
+  })
+
+  await logAudit({
+    action: 'COMPANY_RENAME',
+    actor: { id: superAdmin.id, email: superAdmin.email, role: superAdmin.role },
+    targetType: 'Company',
+    targetId: updated.id,
+    companyId: updated.id,
+    details: { from: existing.name, to: updated.name },
+    request,
+  })
+
+  return NextResponse.json(updated)
+}
+
 export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
   const superAdmin = await requireSuperAdmin(request)
   if (!superAdmin) {
@@ -76,15 +88,13 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
 
   const company = await prisma.company.findUnique({
     where: { id: params.id },
-    select: { id: true, ownerId: true },
+    select: { id: true, name: true, ownerId: true },
   })
   if (!company) {
     return NextResponse.json({ error: 'Företag hittades inte' }, { status: 404 })
   }
 
-  // Radera relaterad användardata för alla anställda/ägaren innan vi tar bort users.
-  // Schema saknar cascade på User->TimeReport/EmployeeDocument/etc, så vi rensar manuellt.
-  await prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     const userIds = (
       await tx.user.findMany({
         where: { companyId: company.id },
@@ -93,20 +103,44 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
     ).map((u) => u.id)
     if (!userIds.includes(company.ownerId)) userIds.push(company.ownerId)
 
+    let timeReports = 0
+    let documents = 0
+    let nextOfKin = 0
+    let projectEmployees = 0
+
     if (userIds.length > 0) {
-      await tx.timeReport.deleteMany({ where: { userId: { in: userIds } } })
-      await tx.employeeDocument.deleteMany({ where: { userId: { in: userIds } } })
-      await tx.nextOfKin.deleteMany({ where: { userId: { in: userIds } } })
-      await tx.projectEmployee.deleteMany({ where: { userId: { in: userIds } } })
+      timeReports = (
+        await tx.timeReport.deleteMany({ where: { userId: { in: userIds } } })
+      ).count
+      documents = (
+        await tx.employeeDocument.deleteMany({ where: { userId: { in: userIds } } })
+      ).count
+      nextOfKin = (await tx.nextOfKin.deleteMany({ where: { userId: { in: userIds } } })).count
+      projectEmployees = (
+        await tx.projectEmployee.deleteMany({ where: { userId: { in: userIds } } })
+      ).count
     }
 
-    // Customer/Project/VacationWeek raderas via cascade när företaget tas bort.
     await tx.company.delete({ where: { id: company.id } })
 
-    // Användare har nullable companyId (set null on delete), så de finns kvar — radera explicit.
+    let users = 0
     if (userIds.length > 0) {
-      await tx.user.deleteMany({ where: { id: { in: userIds } } })
+      users = (await tx.user.deleteMany({ where: { id: { in: userIds } } })).count
     }
+    return { users, timeReports, documents, nextOfKin, projectEmployees }
+  })
+
+  await logAudit({
+    action: 'COMPANY_DELETE',
+    actor: { id: superAdmin.id, email: superAdmin.email, role: superAdmin.role },
+    targetType: 'Company',
+    targetId: company.id,
+    companyId: company.id,
+    details: {
+      companyName: company.name,
+      removed: result,
+    },
+    request,
   })
 
   return NextResponse.json({ message: 'Företag och alla relaterade konton borttagna' })
