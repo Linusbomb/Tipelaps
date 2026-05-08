@@ -109,7 +109,8 @@ function LoginForm() {
         throw new Error('Ogiltigt svar från servern')
       }
       const user: LoginResponseUser = userPayload as LoginResponseUser
-      const isAdminUser = user.role === 'ENTREPRENEUR' || user.role === 'PAYROLL_COORDINATOR'
+      const isSuperAdmin = user.role === 'SUPERADMIN'
+      const isAdminUser = isSuperAdmin || user.role === 'ENTREPRENEUR' || user.role === 'PAYROLL_COORDINATOR'
 
       if (userType === 'admin' && !isAdminUser) {
         throw new Error('Detta konto är Personal. Logga in via Personal-rutan istället.')
@@ -140,8 +141,10 @@ function LoginForm() {
       }
 
       // Omdirigera baserat på roll - använd window.location för full sidladdning
-      const redirectPath = isAdminUser
-        ? '/admin' 
+      const redirectPath = isSuperAdmin
+        ? '/superadmin'
+        : isAdminUser
+        ? '/admin'
         : '/time-report'
       
       console.log('Omdirigerar till:', redirectPath)

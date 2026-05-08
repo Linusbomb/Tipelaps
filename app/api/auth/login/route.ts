@@ -47,7 +47,8 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const isAdminUser = user.role === 'ENTREPRENEUR' || user.role === 'PAYROLL_COORDINATOR'
+    const isSuperAdmin = user.role === 'SUPERADMIN'
+    const isAdminUser = isSuperAdmin || user.role === 'ENTREPRENEUR' || user.role === 'PAYROLL_COORDINATOR'
     if (loginType === 'admin' && !isAdminUser) {
       return NextResponse.json(
         { error: 'Detta konto är Personal. Logga in via Personal-rutan istället.' },
