@@ -21,7 +21,7 @@ En modern webbapplikation där entreprenörer enkelt kan samla in och hantera pe
 - **Next.js 14** - React framework
 - **TypeScript** - Typad JavaScript
 - **Prisma** - ORM för databashantering
-- **PostgreSQL** - Databas (lokalt via Docker, se `INSTALLATION.md`)
+- **SQLite** - Databas (kan enkelt bytas till PostgreSQL)
 - **Tailwind CSS** - Styling
 - **NextAuth.js** - Autentisering
 
@@ -32,7 +32,7 @@ En modern webbapplikation där entreprenörer enkelt kan samla in och hantera pe
 npm install
 ```
 
-2. Starta PostgreSQL (`docker compose up -d`), kopiera `.env.example` till `.env`, sedan:
+2. Skapa databasen:
 ```bash
 npx prisma generate
 npx prisma db push

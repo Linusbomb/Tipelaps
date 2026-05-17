@@ -2,6 +2,16 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
+import {
+  VACATION_WORK_DAYS,
+  VACATION_DAY_LABELS,
+  getWeekDays,
+  toggleVacationDay,
+  setFullWorkWeek,
+  weekButtonTone,
+  type VacationWeekEntry,
+  type VacationWorkDay,
+} from '@/lib/vacationPlanning'
 
 type Employee = {
   id: string
@@ -30,7 +40,11 @@ export default function MyStaffPage() {
   const [error, setError] = useState('')
   const [resendingSetupUserId, setResendingSetupUserId] = useState<string | null>(null)
   const [vacationYear, setVacationYear] = useState(new Date().getFullYear())
-  const [vacationByEmployee, setVacationByEmployee] = useState<Record<string, number[]>>({})
+  const [vacationByEmployee, setVacationByEmployee] = useState<Record<string, VacationWeekEntry[]>>({})
+  const [expandedVacationWeek, setExpandedVacationWeek] = useState<{
+    userId: string
+    week: number
+  } | null>(null)
   const [savingVacationUserId, setSavingVacationUserId] = useState<string | null>(null)
   const [resettingVacation, setResettingVacation] = useState(false)
   const [savedVacationByEmployee, setSavedVacationByEmployee] = useState<Record<string, boolean>>({})
@@ -229,15 +243,18 @@ export default function MyStaffPage() {
       if (!response.ok) return
 
       const data = await response.json()
-      const grouped: Record<string, number[]> = {}
-      ;(data.vacations || []).forEach((entry: { userId: string; week: number }) => {
-        if (!grouped[entry.userId]) grouped[entry.userId] = []
-        grouped[entry.userId].push(entry.week)
-      })
+      const grouped: Record<string, VacationWeekEntry[]> = {}
+      ;(data.vacations || []).forEach(
+        (entry: { userId: string; week: number; days: VacationWorkDay[] }) => {
+          if (!grouped[entry.userId]) grouped[entry.userId] = []
+          grouped[entry.userId].push({ week: entry.week, days: entry.days })
+        }
+      )
       Object.keys(grouped).forEach((userId) => {
-        grouped[userId] = grouped[userId].sort((a, b) => a - b)
+        grouped[userId] = grouped[userId].sort((a, b) => a.week - b.week)
       })
       setVacationByEmployee(grouped)
+      setExpandedVacationWeek(null)
       setSavedVacationByEmployee({})
     } catch (err) {
       console.error('Fel vid hämtning av semesterplanering:', err)
@@ -246,20 +263,33 @@ export default function MyStaffPage() {
     }
   }
 
-  const toggleVacationWeek = (userId: string, week: number) => {
+  const markVacationDirty = (userId: string) => {
     setSavedVacationByEmployee((prev) => ({
       ...prev,
       [userId]: false,
     }))
-    setVacationByEmployee((prev) => {
-      const existing = prev[userId] || []
-      const hasWeek = existing.includes(week)
-      const updated = hasWeek ? existing.filter((w) => w !== week) : [...existing, week]
-      return {
-        ...prev,
-        [userId]: updated.sort((a, b) => a - b),
-      }
-    })
+  }
+
+  const openVacationWeek = (userId: string, week: number) => {
+    setExpandedVacationWeek((prev) =>
+      prev?.userId === userId && prev.week === week ? null : { userId, week }
+    )
+  }
+
+  const selectVacationDay = (userId: string, week: number, day: VacationWorkDay) => {
+    markVacationDirty(userId)
+    setVacationByEmployee((prev) => ({
+      ...prev,
+      [userId]: toggleVacationDay(prev[userId] || [], week, day),
+    }))
+  }
+
+  const selectFullVacationWeek = (userId: string, week: number) => {
+    markVacationDirty(userId)
+    setVacationByEmployee((prev) => ({
+      ...prev,
+      [userId]: setFullWorkWeek(prev[userId] || [], week),
+    }))
   }
 
   const saveVacationWeeks = async (userId: string) => {
@@ -277,7 +307,7 @@ export default function MyStaffPage() {
         body: JSON.stringify({
           userId,
           year: vacationYear,
-          weeks: vacationByEmployee[userId] || [],
+          weekEntries: vacationByEmployee[userId] || [],
         }),
       })
 
@@ -319,6 +349,7 @@ export default function MyStaffPage() {
 
       setVacationByEmployee({})
       setSavedVacationByEmployee({})
+      setExpandedVacationWeek(null)
     } catch (error: any) {
       alert(error.message || 'Kunde inte nollställa semesterveckor')
     } finally {
@@ -505,9 +536,14 @@ export default function MyStaffPage() {
 
         <div className="bg-white rounded-lg shadow-md p-4 sm:p-6 mt-8 border border-gray-200">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
-            <h2 className="text-2xl font-bold" style={{ color: '#2D5016' }}>
-              Semesterplanering ({vacationYear})
-            </h2>
+            <div>
+              <h2 className="text-2xl font-bold" style={{ color: '#2D5016' }}>
+                Semesterplanering ({vacationYear})
+              </h2>
+              <p className="text-sm text-gray-600 mt-1">
+                Klicka på en vecka (t.ex. V23) för att välja mån–fre eller hela veckan.
+              </p>
+            </div>
             <div className="flex items-center gap-2">
               <span className="text-sm text-gray-600">År:</span>
               <input
@@ -528,7 +564,7 @@ export default function MyStaffPage() {
           ) : (
             <div className="space-y-4">
               {employees.map((employee) => {
-                const selectedWeeks = vacationByEmployee[employee.id] || []
+                const vacationEntries = vacationByEmployee[employee.id] || []
                 return (
                   <div key={employee.id} className="border border-gray-300 rounded-md p-4">
                     <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 mb-3">
@@ -553,23 +589,75 @@ export default function MyStaffPage() {
                       </div>
                     </div>
 
-                    <div className="overflow-x-auto">
-                      <div className="flex flex-wrap gap-2 min-w-[760px]">
-                        {Array.from({ length: 53 }, (_, index) => index + 1).map((week) => (
-                          <button
-                            key={week}
-                            type="button"
-                            onClick={() => toggleVacationWeek(employee.id, week)}
-                            className={`px-2 py-2 rounded-md border text-xs font-medium transition ${
-                              selectedWeeks.includes(week)
-                                ? 'bg-green-700 text-white border-green-700'
-                                : 'bg-white text-gray-700 border-gray-300 hover:bg-green-50'
-                            }`}
-                            title={`Vecka ${week}`}
-                          >
-                            V{week}
-                          </button>
-                        ))}
+                    <div
+                      className={`overflow-x-auto ${
+                        expandedVacationWeek?.userId === employee.id ? 'min-h-[9.5rem]' : ''
+                      }`}
+                    >
+                      <div className="flex flex-wrap gap-2 min-w-[760px] items-start content-start">
+                        {Array.from({ length: 53 }, (_, index) => index + 1).map((week) => {
+                          const weekDays = getWeekDays(vacationEntries, week)
+                          const tone = weekButtonTone(weekDays)
+                          const isExpanded =
+                            expandedVacationWeek?.userId === employee.id &&
+                            expandedVacationWeek.week === week
+                          const weekButtonClass =
+                            tone === 'full'
+                              ? 'bg-green-700 text-white border-green-700'
+                              : tone === 'partial'
+                                ? 'bg-amber-100 text-amber-900 border-amber-400'
+                                : isExpanded
+                                  ? 'bg-green-50 text-gray-900 border-green-600 ring-1 ring-green-600'
+                                  : 'bg-white text-gray-700 border-gray-300 hover:bg-green-50'
+                          return (
+                            <div key={week} className="flex flex-col items-stretch">
+                              <button
+                                type="button"
+                                onClick={() => openVacationWeek(employee.id, week)}
+                                className={`px-2 py-2 rounded-md border text-xs font-medium transition ${weekButtonClass}`}
+                                title={`Vecka ${week} – välj dagar`}
+                                aria-expanded={isExpanded}
+                              >
+                                V{week}
+                              </button>
+                              {isExpanded && (
+                                <div className="mt-1 p-2 rounded-md border border-gray-300 bg-white shadow-md min-w-[9.5rem]">
+                                  <button
+                                    type="button"
+                                    onClick={() => selectFullVacationWeek(employee.id, week)}
+                                    className={`w-full mb-2 px-2 py-1.5 rounded-md border text-xs font-semibold ${
+                                      tone === 'full'
+                                        ? 'bg-green-700 text-white border-green-700'
+                                        : 'bg-gray-50 text-gray-800 border-gray-300 hover:bg-green-50'
+                                    }`}
+                                  >
+                                    Hela veckan
+                                  </button>
+                                  <div className="flex flex-wrap gap-1">
+                                    {VACATION_WORK_DAYS.map((day) => {
+                                      const selected = weekDays.includes(day)
+                                      return (
+                                        <button
+                                          key={day}
+                                          type="button"
+                                          onClick={() => selectVacationDay(employee.id, week, day)}
+                                          className={`px-2 py-1 rounded-md border text-xs font-medium ${
+                                            selected
+                                              ? 'bg-green-700 text-white border-green-700'
+                                              : 'bg-white text-gray-700 border-gray-300 hover:bg-green-50'
+                                          }`}
+                                          title={VACATION_DAY_LABELS[day]}
+                                        >
+                                          {VACATION_DAY_LABELS[day]}
+                                        </button>
+                                      )
+                                    })}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })}
                       </div>
                     </div>
                   </div>

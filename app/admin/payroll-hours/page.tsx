@@ -3,14 +3,20 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 
+function roleLabel(role: string): string {
+  if (role === 'ENTREPRENEUR' || role === 'PAYROLL_COORDINATOR') return 'Admin'
+  return 'Personal'
+}
+
 interface Row {
   id: string
   name: string
   email: string
+  role?: string
   inskickadeTimmar: number
   godkandaTimmar: number
-  inskickadeOvertid: number
-  godkandOvertid: number
+  overtidInskickad: number
+  overtidGodkand: number
   rapportCountInskickad: number
   rapportCountGodkand: number
 }
@@ -21,8 +27,8 @@ interface Summary {
   totals: {
     inskickadeTimmar: number
     godkandaTimmar: number
-    inskickadeOvertid: number
-    godkandOvertid: number
+    overtidInskickad: number
+    overtidGodkand: number
   }
 }
 
@@ -149,14 +155,14 @@ export default function PayrollHoursPage() {
       'E-post',
       'Inskickade timmar',
       'Godkända timmar',
-      'Inskickad övertid',
-      'Godkänd övertid',
+      'Övertid inskickad (h)',
+      'Övertid godkänd (h)',
       'Antal rapporter (insk.)',
       'Antal godkända',
     ].join('\t')
     const lines = summary.employees.map(
       (e) =>
-        `${e.name}\t${e.email}\t${e.inskickadeTimmar}\t${e.godkandaTimmar}\t${e.inskickadeOvertid}\t${e.godkandOvertid}\t${e.rapportCountInskickad}\t${e.rapportCountGodkand}`
+        `${e.name}\t${e.email}\t${e.inskickadeTimmar}\t${e.godkandaTimmar}\t${e.overtidInskickad}\t${e.overtidGodkand}\t${e.rapportCountInskickad}\t${e.rapportCountGodkand}`
     )
     const text = `${header}\n${lines.join('\n')}`
     try {
@@ -185,7 +191,7 @@ export default function PayrollHoursPage() {
         <div>
           <h1 className="app-title text-gray-900">Arbetstid för lön</h1>
           <p className="text-gray-600 mt-1">
-            Totalt antal timmar per anställd per månad och enkel CSV-export till lönesystem.
+            Totalt antal timmar per anställd per månad. Övertid = all tid över 8 h samma dag per tidrapport.
           </p>
         </div>
         <div className="flex items-center gap-4 shrink-0">
@@ -299,9 +305,6 @@ export default function PayrollHoursPage() {
                     Timmar godkända
                   </th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wide">
-                    Övertid inskickad*
-                  </th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wide">
                     Övertid godkänd
                   </th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wide">
@@ -312,7 +315,14 @@ export default function PayrollHoursPage() {
               <tbody className="bg-white divide-y divide-gray-200">
                 {summary.employees.map((e) => (
                   <tr key={e.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 text-sm text-gray-900 font-medium">{e.name}</td>
+                    <td className="px-4 py-3 text-sm text-gray-900 font-medium">
+                      {e.name}
+                      {e.role ? (
+                        <span className="ml-2 text-xs font-normal text-gray-500">
+                          ({roleLabel(e.role)})
+                        </span>
+                      ) : null}
+                    </td>
                     <td className="px-4 py-3 text-sm text-gray-700">{e.email}</td>
                     <td className="px-4 py-3 text-sm text-gray-900 text-right tabular-nums">
                       {e.inskickadeTimmar.toFixed(1)}
@@ -320,14 +330,8 @@ export default function PayrollHoursPage() {
                     <td className="px-4 py-3 text-sm font-semibold text-right tabular-nums" style={{ color: '#2D5016' }}>
                       {e.godkandaTimmar.toFixed(1)}
                     </td>
-                    <td className="px-4 py-3 text-sm text-gray-900 text-right tabular-nums">
-                      {e.inskickadeOvertid.toFixed(1)}
-                    </td>
-                    <td
-                      className="px-4 py-3 text-sm font-semibold text-right tabular-nums"
-                      style={{ color: '#8B5A00' }}
-                    >
-                      {e.godkandOvertid.toFixed(1)}
+                    <td className="px-4 py-3 text-sm text-amber-900 text-right tabular-nums font-medium">
+                      {e.overtidGodkand > 0 ? e.overtidGodkand.toFixed(1) : '—'}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-600 text-right">
                       {e.rapportCountGodkand}/{e.rapportCountInskickad}
@@ -346,14 +350,10 @@ export default function PayrollHoursPage() {
                   <td className="px-4 py-3 text-sm font-semibold text-right tabular-nums" style={{ color: '#2D5016' }}>
                     {summary.totals.godkandaTimmar.toFixed(1)}
                   </td>
-                  <td className="px-4 py-3 text-sm font-semibold text-right tabular-nums">
-                    {summary.totals.inskickadeOvertid.toFixed(1)}
-                  </td>
-                  <td
-                    className="px-4 py-3 text-sm font-semibold text-right tabular-nums"
-                    style={{ color: '#8B5A00' }}
-                  >
-                    {summary.totals.godkandOvertid.toFixed(1)}
+                  <td className="px-4 py-3 text-sm font-semibold text-right tabular-nums text-amber-900">
+                    {summary.totals.overtidGodkand > 0
+                      ? summary.totals.overtidGodkand.toFixed(1)
+                      : '—'}
                   </td>
                   <td className="px-4 py-3 text-sm text-gray-500 text-right">
                     {/* leave blank */}

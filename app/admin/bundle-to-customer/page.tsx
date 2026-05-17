@@ -19,14 +19,6 @@ type BundleReport = {
 
 type EmployeeOpt = { id: string; name: string }
 
-type ProjectOpt = {
-  id: string
-  name: string
-  startDate: string
-  endBoundary: string
-  assignedEmployeeCount: number
-}
-
 const statusSv: Record<string, string> = {
   SUBMITTED: 'Inlämnad',
   APPROVED: 'Godkänd',
@@ -42,18 +34,14 @@ function formatIsoDate(dateStr: string) {
   }
 }
 
-/** Aktuell månad i YYYY-MM-format. */
-function currentMonthValue(): string {
-  const now = new Date()
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
-}
-
-/** Månadsalternativ YYYY-MM, nyast först. Från 2026 till och med innevarande månad. */
+/** Månadsalternativ YYYY-MM, nyast först. Från 2026 och upp till december 10 år framåt från nu. */
 function buildMonthSelectOptions(): { value: string; label: string }[] {
   const list: { value: string; label: string }[] = []
   const now = new Date()
+  /** Sista månaden i listan = december året 10 år framåt från nu. */
+  const end = new Date(now.getFullYear() + 10, 11, 1)
   const start = new Date(2026, 0, 1)
-  const cur = new Date(now.getFullYear(), now.getMonth(), 1)
+  const cur = new Date(end.getFullYear(), end.getMonth(), 1)
   while (cur >= start) {
     const value = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}`
     const raw = cur.toLocaleDateString('sv-SE', { month: 'long', year: 'numeric' })
@@ -68,17 +56,14 @@ export default function BundleToCustomerPage() {
   const router = useRouter()
   const [customers, setCustomers] = useState<CustomerLite[]>([])
   const [customerId, setCustomerId] = useState('')
-  const [monthFilter, setMonthFilter] = useState<string>(() => currentMonthValue())
+  const [monthFilter, setMonthFilter] = useState('')
   const [employeeFilter, setEmployeeFilter] = useState('')
   const [reports, setReports] = useState<BundleReport[]>([])
   const [employeesFromApi, setEmployeesFromApi] = useState<EmployeeOpt[]>([])
-  const [projectsFromApi, setProjectsFromApi] = useState<ProjectOpt[]>([])
-  const [allProjects, setAllProjects] = useState(true)
-  const [selectedProjectIds, setSelectedProjectIds] = useState<Set<string>>(() => new Set())
   const [customerMeta, setCustomerMeta] = useState<CustomerLite | null>(null)
   const [selected, setSelected] = useState<Set<string>>(() => new Set())
   const [loadingList, setLoadingList] = useState(false)
-  const [busyAction, setBusyAction] = useState<'dl' | 'mail' | null>(null)
+  const [busyAction, setBusyAction] = useState<'dl' | 'excel' | 'mail' | null>(null)
 
   const [toEmail, setToEmail] = useState('')
   const [subject, setSubject] = useState('Underlag tidrapporter')
@@ -125,12 +110,6 @@ export default function BundleToCustomerPage() {
     loadCustomers()
   }, [])
 
-  const projectIdsParam = useMemo(() => {
-    if (allProjects) return ''
-    const ids = Array.from(selectedProjectIds)
-    return ids.length > 0 ? ids.join(',') : '__none__'
-  }, [allProjects, selectedProjectIds])
-
   const fetchBundleData = useCallback(async () => {
     if (!customerId) return
     setFeedback(null)
@@ -142,7 +121,6 @@ export default function BundleToCustomerPage() {
       const params = new URLSearchParams({ customerId })
       if (employeeFilter) params.set('employeeId', employeeFilter)
       if (monthFilter.trim()) params.set('month', monthFilter.trim())
-      if (projectIdsParam) params.set('projectIds', projectIdsParam)
 
       const res = await fetch(`/api/admin/time-reports/bundle-candidates?${params}`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -152,7 +130,6 @@ export default function BundleToCustomerPage() {
       if (!res.ok) {
         setReports([])
         setEmployeesFromApi([])
-        setProjectsFromApi([])
         setCustomerMeta(null)
         setSelected(new Set())
         setFeedback({ type: 'err', text: data.error ?? 'Kunde inte hämta listan' })
@@ -161,7 +138,6 @@ export default function BundleToCustomerPage() {
 
       setReports(data.reports ?? [])
       setEmployeesFromApi(data.employees ?? [])
-      setProjectsFromApi(Array.isArray(data.projects) ? data.projects : [])
       if (data.customer) {
         setCustomerMeta(data.customer)
         const ce =
@@ -178,7 +154,7 @@ export default function BundleToCustomerPage() {
     } finally {
       setLoadingList(false)
     }
-  }, [customerId, employeeFilter, monthFilter, projectIdsParam])
+  }, [customerId, employeeFilter, monthFilter])
 
   useEffect(() => {
     fetchBundleData()
@@ -193,28 +169,6 @@ export default function BundleToCustomerPage() {
     })
   }
 
-  const toggleProject = (id: string) => {
-    setAllProjects(false)
-    setSelectedProjectIds((prev) => {
-      const n = new Set(prev)
-      if (n.has(id)) n.delete(id)
-      else n.add(id)
-      if (n.size === 0) {
-        setAllProjects(true)
-      }
-      return n
-    })
-  }
-
-  const handleAllProjectsToggle = (checked: boolean) => {
-    if (checked) {
-      setAllProjects(true)
-      setSelectedProjectIds(new Set())
-    } else {
-      setAllProjects(false)
-    }
-  }
-
   const selectAllFiltered = () => {
     const ids = filteredReports.map((r) => r.id)
     setSelected(new Set(ids))
@@ -223,6 +177,60 @@ export default function BundleToCustomerPage() {
   const clearSelection = () => setSelected(new Set())
 
   const selectedIds = useMemo(() => Array.from(selected), [selected])
+
+  const handleDownloadExcel = async (onlySelected: boolean) => {
+    if (onlySelected && selectedIds.length === 0) {
+      setFeedback({ type: 'err', text: 'Välj minst en tidrapport.' })
+      return
+    }
+    if (!customerId) {
+      setFeedback({ type: 'err', text: 'Välj en kund först.' })
+      return
+    }
+
+    setBusyAction('excel')
+    setFeedback(null)
+    try {
+      const token = localStorage.getItem('token')
+      const params = new URLSearchParams({ customerId })
+      if (monthFilter.trim()) params.set('month', monthFilter.trim())
+      if (employeeFilter.trim()) params.set('employeeId', employeeFilter.trim())
+      if (onlySelected) params.set('reportIds', selectedIds.join(','))
+
+      const res = await fetch(`/api/admin/time-reports/bundle-excel?${params}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        setFeedback({ type: 'err', text: err.error ?? 'Excel-export misslyckades' })
+        return
+      }
+
+      const blob = await res.blob()
+      const cd = res.headers.get('Content-Disposition')
+      const match = cd?.match(/filename="([^"]+)"/)
+      const name = match?.[1] ?? `tidrapporter-${Date.now()}.xlsx`
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = name
+      a.click()
+      URL.revokeObjectURL(url)
+
+      const customerName = customerMeta?.name ?? customers.find((c) => c.id === customerId)?.name ?? 'kund'
+      setFeedback({
+        type: 'ok',
+        text: onlySelected
+          ? `Excel med ${selectedIds.length} valda rapport(er) för ${customerName} har laddats ner.`
+          : `Excel med alla timmar för ${customerName} i listan har laddats ner.`,
+      })
+    } catch {
+      setFeedback({ type: 'err', text: 'Excel-export misslyckades (nätverksfel).' })
+    } finally {
+      setBusyAction(null)
+    }
+  }
 
   const handleDownloadZip = async () => {
     if (selectedIds.length === 0) {
@@ -249,7 +257,7 @@ export default function BundleToCustomerPage() {
       const blob = await res.blob()
       const cd = res.headers.get('Content-Disposition')
       const match = cd?.match(/filename="([^"]+)"/)
-      const name = match?.[1] ?? `tidrapporter-${Date.now()}.xlsx`
+      const name = match?.[1] ?? `tidrapporter-${Date.now()}.zip`
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
@@ -258,7 +266,7 @@ export default function BundleToCustomerPage() {
       URL.revokeObjectURL(url)
       setFeedback({
         type: 'ok',
-        text: `${selectedIds.length} rapport(er) sparades i Excel-filen.`,
+        text: `${selectedIds.length} rapport(er) sparades i ZIP.`,
       })
     } catch {
       setFeedback({ type: 'err', text: 'Nedladdning misslyckades (nätverksfel).' })
@@ -324,8 +332,8 @@ export default function BundleToCustomerPage() {
           Tidrapporter till kund
         </h1>
         <p className="text-gray-700 mb-6">
-          Välj kund och kryssa i de tidrapporter som ska ingå. Du kan sedan ladda ner dem som en
-          Excel‑fil (.xlsx) eller skicka samma fil till kundens e‑post som underlag.
+          Välj kund och kryssa i de tidrapporter som ska ingå. Du kan sedan ladda ner dem som ett ZIP‑arkiv
+          eller skicka samma arkiv till kundens e‑post som underlag.
         </p>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
@@ -338,10 +346,7 @@ export default function BundleToCustomerPage() {
                 const id = e.target.value
                 setCustomerId(id)
                 setEmployeeFilter('')
-                setMonthFilter(currentMonthValue())
-                setAllProjects(true)
-                setSelectedProjectIds(new Set())
-                setProjectsFromApi([])
+                setMonthFilter('')
                 const c = customers.find((x) => x.id === id)
                 setToEmail(typeof c?.contactEmail === 'string' ? c.contactEmail : '')
               }}
@@ -392,79 +397,6 @@ export default function BundleToCustomerPage() {
           </div>
         </div>
 
-        {customerId && projectsFromApi.length > 0 && (
-          <div className="mb-6 border rounded-lg p-4 bg-gray-50">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="font-semibold text-gray-800">
-                Projekt för {customerMeta?.name ?? 'kund'}
-              </h3>
-              <span className="text-xs text-gray-500">
-                {projectsFromApi.length} projekt
-              </span>
-            </div>
-            <label className="flex items-center gap-2 cursor-pointer select-none mb-3 pb-3 border-b border-gray-200">
-              <input
-                type="checkbox"
-                className="h-4 w-4 accent-green-800"
-                checked={allProjects}
-                onChange={(e) => handleAllProjectsToggle(e.target.checked)}
-              />
-              <span className="text-sm font-medium text-gray-800">
-                Alla projekt (ingen filtrering på projekt)
-              </span>
-            </label>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-              {projectsFromApi.map((p) => {
-                const isChecked = !allProjects && selectedProjectIds.has(p.id)
-                const start = (() => {
-                  try {
-                    return new Date(p.startDate).toLocaleDateString('sv-SE')
-                  } catch {
-                    return ''
-                  }
-                })()
-                return (
-                  <label
-                    key={p.id}
-                    className={`flex items-start gap-2 cursor-pointer select-none rounded-md border px-3 py-2 transition-colors ${
-                      isChecked
-                        ? 'border-green-800 bg-green-50'
-                        : 'border-gray-200 bg-white hover:border-green-700'
-                    } ${allProjects ? 'opacity-60' : ''}`}
-                  >
-                    <input
-                      type="checkbox"
-                      className="h-4 w-4 mt-0.5 accent-green-800"
-                      checked={isChecked}
-                      disabled={p.assignedEmployeeCount === 0}
-                      onChange={() => toggleProject(p.id)}
-                    />
-                    <div className="text-sm flex-1">
-                      <div className="font-medium text-gray-800">{p.name}</div>
-                      <div className="text-xs text-gray-500">
-                        Start {start} · {p.assignedEmployeeCount} personal
-                        {p.assignedEmployeeCount === 0 ? ' (ej tilldelad)' : ''}
-                      </div>
-                    </div>
-                  </label>
-                )
-              })}
-            </div>
-            <p className="text-xs text-gray-500 mt-3">
-              Tidrapporter har ingen direkt projektkoppling, så filtreringen baseras på vilken
-              personal som är tilldelad projektet och rapporternas datum (från projektstart till
-              senaste avslut + marginal).
-            </p>
-          </div>
-        )}
-
-        {customerId && projectsFromApi.length === 0 && !loadingList && (
-          <p className="text-xs text-gray-500 mb-4">
-            Inga projekt registrerade för {customerMeta?.name ?? 'denna kund'} — alla rapporter
-            visas.
-          </p>
-        )}
-
         {!customerId ? (
           <p className="text-gray-500">Välj en kund för att se godkända och inlämnade tidrapporter.</p>
         ) : loadingList ? (
@@ -497,7 +429,7 @@ export default function BundleToCustomerPage() {
               </span>
             </div>
             <p className="text-sm text-gray-600 mb-2">
-              Klicka på en rad för att öppna tidrapporten. Använd kryssrutan för att välja rapporter till Excel eller e‑post.
+              Klicka på en rad för att öppna tidrapporten. Använd kryssrutan för att välja rapporter till ZIP eller e‑post.
             </p>
             <div className="border rounded-lg overflow-hidden max-h-[340px] overflow-y-auto">
               <table className="min-w-full text-sm">
@@ -561,14 +493,35 @@ export default function BundleToCustomerPage() {
         <div className="flex flex-wrap gap-3">
           <button
             type="button"
-            disabled={busyAction !== null || selectedIds.length === 0}
-            onClick={handleDownloadZip}
+            disabled={busyAction !== null || !customerId || filteredReports.length === 0}
+            onClick={() => handleDownloadExcel(false)}
             className="px-4 py-2 rounded-md font-medium text-white disabled:opacity-45"
             style={{ backgroundColor: '#2D5016' }}
           >
-            {busyAction === 'dl' ? 'Skapar Excel…' : 'Ladda ner som Excel (.xlsx)'}
+            {busyAction === 'excel' ? 'Skapar Excel…' : 'Ladda ner Excel (alla i listan)'}
+          </button>
+          <button
+            type="button"
+            disabled={busyAction !== null || selectedIds.length === 0}
+            onClick={() => handleDownloadExcel(true)}
+            className="px-4 py-2 rounded-md font-medium border-2 disabled:opacity-45"
+            style={{ borderColor: '#2D5016', color: '#2D5016' }}
+          >
+            Ladda ner Excel (valda)
+          </button>
+          <button
+            type="button"
+            disabled={busyAction !== null || selectedIds.length === 0}
+            onClick={handleDownloadZip}
+            className="px-4 py-2 rounded-md font-medium border border-gray-400 disabled:opacity-45 hover:bg-gray-50"
+          >
+            {busyAction === 'dl' ? 'Skapar ZIP…' : 'Ladda ner som ZIP (valda)'}
           </button>
         </div>
+        <p className="text-sm text-gray-600 mt-2">
+          Excel-filen innehåller alla timmar per rad (detaljer) samt en sammanfattning per personal — lämplig
+          att skicka till kund eller beställare.
+        </p>
 
         <hr className="border-gray-200" />
 
@@ -623,7 +576,7 @@ export default function BundleToCustomerPage() {
           className="px-4 py-2 rounded-md font-medium border-2 disabled:opacity-45"
           style={{ borderColor: '#2D5016', color: '#2D5016' }}
         >
-          {busyAction === 'mail' ? 'Skickar…' : 'Skicka Excel till kund'}
+          {busyAction === 'mail' ? 'Skickar…' : 'Skicka ZIP till kund'}
         </button>
 
         <p className="text-xs text-gray-500">

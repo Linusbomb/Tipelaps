@@ -1,11 +1,10 @@
-import { NextRequest, NextResponse } from 'next/server'
+﻿import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { verifyToken } from '@/lib/auth'
-import { employmentHasEnded } from '@/lib/accountStatus'
-import { adminEffectiveCompanyId } from '@/lib/apiAdmin'
 import { parseDateOnlyLocal } from '@/lib/parseDateOnlyLocal'
 import { isBuyerReferenceUnsupported } from '@/lib/prismaCompat'
-import { cleanOvertimeEntries, sumOvertimeHours } from '@/lib/overtime'
+import { persistReportOvertimeHours } from '@/lib/overtime'
+import { resolveTimeReportSubject } from '@/lib/timeReportSubject'
 
 export const dynamic = 'force-dynamic'
 
@@ -27,20 +26,17 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Ej auktoriserad' }, { status: 401 })
     }
 
-    if (await employmentHasEnded(userId)) {
-      return NextResponse.json(
-        { error: 'Ditt arbetskonto är avslutat.', inactive: true },
-        { status: 403 }
-      )
-    }
-
     const { searchParams } = new URL(request.url)
     const status = searchParams.get('status')
     const month = searchParams.get('month')
+    const forUserIdParam = searchParams.get('forUserId')
+
+    const subject = await resolveTimeReportSubject(userId, forUserIdParam ?? userId)
+    if (!subject.ok) return subject.response
 
     const reports = await prisma.timeReport.findMany({
       where: {
-        userId,
+        userId: subject.reportUserId,
         ...(status && status !== 'ALL' ? { status } : {}),
         ...(month ? { month } : {}),
       },
@@ -49,9 +45,6 @@ export async function GET(request: NextRequest) {
           select: { id: true, name: true },
         },
         entries: {
-          orderBy: { createdAt: 'asc' },
-        },
-        overtimeEntries: {
           orderBy: { createdAt: 'asc' },
         },
       },
@@ -77,23 +70,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Ej auktoriserad' }, { status: 401 })
     }
 
-    if (await employmentHasEnded(userId)) {
-      return NextResponse.json(
-        { error: 'Ditt arbetskonto är avslutat.', inactive: true },
-        { status: 403 }
-      )
-    }
-
     const body = await request.json()
-    const { customerId, date, entries, missingHoursReason, buyerReference, overtimeEntries } = body
+    const { customerId, date, entries, missingHoursReason, buyerReference, forUserId } = body
 
-    let cleanedOvertime
-    try {
-      cleanedOvertime = cleanOvertimeEntries(overtimeEntries)
-    } catch (e: any) {
-      return NextResponse.json({ error: e.message ?? 'Ogiltig övertid' }, { status: 400 })
-    }
-    const overtimeTotal = sumOvertimeHours(cleanedOvertime)
+    const subject = await resolveTimeReportSubject(userId, forUserId)
+    if (!subject.ok) return subject.response
+
+    const reportUserId = subject.reportUserId
 
     if (!customerId || !date || !Array.isArray(entries) || entries.length === 0) {
       return NextResponse.json(
@@ -102,23 +85,11 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { companyId: true, ownedCompany: { select: { id: true } } },
-    })
-    const effectiveCompanyId = user ? adminEffectiveCompanyId(user) : null
-    if (!effectiveCompanyId) {
-      return NextResponse.json(
-        { error: 'Användaren tillhör inget företag' },
-        { status: 400 }
-      )
-    }
-
     const customer = await prisma.customer.findUnique({
       where: { id: customerId },
       select: { companyId: true },
     })
-    if (!customer || customer.companyId !== effectiveCompanyId) {
+    if (!customer || customer.companyId !== subject.companyId) {
       return NextResponse.json(
         { error: 'Kunden tillhör inte ditt företag' },
         { status: 400 }
@@ -184,13 +155,12 @@ export async function POST(request: NextRequest) {
     const createReport = (includeBuyerReference: boolean) =>
       prisma.timeReport.create({
         data: {
-          userId,
+          userId: reportUserId,
           customerId,
           date: reportDate,
           year: reportDate.getFullYear(),
           totalHours,
           customerTotalHours: totalHours,
-          overtimeHours: overtimeTotal,
           missingHoursReason: remainingHours > 0 ? String(missingHoursReason).trim() : null,
           ...(includeBuyerReference ? { buyerReference: buyerRefTrimmed } : {}),
           month,
@@ -206,21 +176,12 @@ export async function POST(request: NextRequest) {
                   : null,
             })),
           },
-          overtimeEntries: {
-            create: cleanedOvertime.map((row) => ({
-              startTime: row.startTime,
-              endTime: row.endTime,
-              hours: row.hours,
-              note: row.note,
-            })),
-          },
         },
         include: {
           customer: {
             select: { id: true, name: true },
           },
           entries: true,
-          overtimeEntries: true,
         },
       })
 
@@ -233,6 +194,8 @@ export async function POST(request: NextRequest) {
       }
       report = await createReport(false)
     }
+
+    await persistReportOvertimeHours(report.id, totalHours)
 
     return NextResponse.json(report, { status: 201 })
   } catch (error) {

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { verifyToken } from '@/lib/auth'
+import { computeOvertimeHours } from '@/lib/overtime'
+import { getPayrollStaffForCompany } from '@/lib/payrollStaff'
 
 export const dynamic = 'force-dynamic'
 
@@ -53,35 +55,34 @@ export async function GET(request: NextRequest) {
     const statusFilter =
       mode === 'payroll' ? (['APPROVED'] as const) : (['SUBMITTED', 'APPROVED'] as const)
 
+    const staff = await getPayrollStaffForCompany(auth.companyId)
+    const staffIds = staff.map((s) => s.id)
+
     const reports = await prisma.timeReport.findMany({
       where: {
         month,
-        user: { companyId: auth.companyId },
+        userId: { in: staffIds },
         status: { in: [...statusFilter] },
       },
       select: {
         totalHours: true,
-        status: true,
         userId: true,
-        user: { select: { name: true, email: true } },
       },
     })
 
-    type RowAgg = { name: string; email: string; hours: number; count: number }
+    type RowAgg = { name: string; email: string; hours: number; overtime: number; count: number }
     const map = new Map<string, RowAgg>()
 
+    for (const s of staff) {
+      map.set(s.id, { name: s.name, email: s.email, hours: 0, overtime: 0, count: 0 })
+    }
+
     for (const r of reports) {
-      const key = r.userId
-      const prev =
-        map.get(key) ?? {
-          name: r.user.name,
-          email: r.user.email,
-          hours: 0,
-          count: 0,
-        }
+      const prev = map.get(r.userId)
+      if (!prev) continue
       prev.hours += r.totalHours
+      prev.overtime += computeOvertimeHours(r.totalHours)
       prev.count += 1
-      map.set(key, prev)
     }
 
     const rows = Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name, 'sv'))
@@ -91,7 +92,14 @@ export async function GET(request: NextRequest) {
         ? 'Arbetstimmar (godkända tidrapporter)'
         : 'Arbetstimmar (inskickade inkl. ej godkända)'
 
-    const headers = ['Månad', 'Namn', 'E-post', headerHours, 'Antal rapporter']
+    const headers = [
+      'Månad',
+      'Namn',
+      'E-post',
+      headerHours,
+      'Övertid (h, över 8 h/dag)',
+      'Antal rapporter',
+    ]
     const lines = [
       headers.map((h) => csvCell(h)).join(';'),
       ...rows.map((row) =>
@@ -100,6 +108,7 @@ export async function GET(request: NextRequest) {
           csvCell(row.name),
           csvCell(row.email),
           csvCell(Math.round(row.hours * 100) / 100),
+          csvCell(Math.round(row.overtime * 100) / 100),
           csvCell(row.count),
         ].join(';')
       ),

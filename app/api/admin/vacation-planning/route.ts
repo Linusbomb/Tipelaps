@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { verifyToken } from '@/lib/auth'
+import {
+  FULL_WORK_WEEK_DAYS,
+  serializeVacationDays,
+  parseVacationDaysJson,
+  VACATION_WORK_DAYS,
+  type VacationWorkDay,
+} from '@/lib/vacationPlanning'
 
 export const dynamic = 'force-dynamic'
 
@@ -18,6 +25,42 @@ async function getUser(request: NextRequest) {
     where: { id: decoded.userId },
     include: { company: true, ownedCompany: true },
   })
+}
+
+function normalizeDays(raw: unknown): VacationWorkDay[] | null {
+  if (!Array.isArray(raw)) return null
+  const valid = raw
+    .map((d) => Number(d))
+    .filter((d): d is VacationWorkDay => VACATION_WORK_DAYS.includes(d as VacationWorkDay))
+  const unique = Array.from(new Set(valid)).sort((a, b) => a - b)
+  return unique.length > 0 ? unique : null
+}
+
+function parseWeekEntries(body: {
+  weekEntries?: unknown
+  weeks?: unknown
+}): Array<{ week: number; days: VacationWorkDay[] }> {
+  if (Array.isArray(body.weekEntries)) {
+    const entries: Array<{ week: number; days: VacationWorkDay[] }> = []
+    for (const item of body.weekEntries) {
+      if (!item || typeof item !== 'object') continue
+      const week = Number((item as { week?: unknown }).week)
+      if (!Number.isInteger(week) || week < 1 || week > 53) continue
+      const days =
+        normalizeDays((item as { days?: unknown }).days) ?? [...FULL_WORK_WEEK_DAYS]
+      entries.push({ week, days })
+    }
+    return entries
+  }
+
+  if (Array.isArray(body.weeks)) {
+    return body.weeks
+      .map((w) => Number(w))
+      .filter((week) => Number.isInteger(week) && week >= 1 && week <= 53)
+      .map((week) => ({ week, days: [...FULL_WORK_WEEK_DAYS] }))
+  }
+
+  return []
 }
 
 export async function GET(request: NextRequest) {
@@ -64,12 +107,20 @@ export async function GET(request: NextRequest) {
         select: {
           userId: true,
           week: true,
+          days: true,
         },
         orderBy: [{ userId: 'asc' }, { week: 'asc' }],
       }),
     ])
 
-    return NextResponse.json({ employees, vacations })
+    return NextResponse.json({
+      employees,
+      vacations: vacations.map((v) => ({
+        userId: v.userId,
+        week: v.week,
+        days: parseVacationDaysJson(v.days),
+      })),
+    })
   } catch (error) {
     console.error('Fel vid hämtning av semesterplanering:', error)
     return NextResponse.json({ error: 'Kunde inte hämta semesterplanering' }, { status: 500 })
@@ -95,17 +146,10 @@ export async function PUT(request: NextRequest) {
     const body = await request.json()
     const userId = body?.userId as string
     const year = Number(body?.year)
-    const weeks: number[] = Array.isArray(body?.weeks)
-      ? (body.weeks as unknown[]).map((w) => Number(w))
-      : []
+    const weekEntries = parseWeekEntries(body)
 
     if (!userId || !Number.isInteger(year)) {
       return NextResponse.json({ error: 'Anställd och år krävs' }, { status: 400 })
-    }
-
-    const invalidWeek = weeks.find((week: number) => !Number.isInteger(week) || week < 1 || week > 53)
-    if (invalidWeek) {
-      return NextResponse.json({ error: 'Ogiltigt veckonummer' }, { status: 400 })
     }
 
     const employee = await prisma.user.findFirst({
@@ -131,13 +175,19 @@ export async function PUT(request: NextRequest) {
         },
       })
 
-      if (weeks.length > 0) {
+      if (weekEntries.length > 0) {
+        const byWeek = new Map<number, VacationWorkDay[]>()
+        for (const entry of weekEntries) {
+          byWeek.set(entry.week, entry.days)
+        }
+
         await tx.vacationWeek.createMany({
-          data: Array.from(new Set(weeks) as Set<number>).map((week: number) => ({
+          data: Array.from(byWeek.entries()).map(([week, days]) => ({
             companyId,
             userId,
             year,
             week,
+            days: serializeVacationDays(days),
           })),
         })
       }

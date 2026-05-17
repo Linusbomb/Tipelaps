@@ -6,6 +6,9 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import SuccessDialog from '@/app/components/SuccessDialog'
 import ConfirmDialog from '@/app/components/ConfirmDialog'
+import MonthCustomerReportFolders, {
+  groupReportsByCustomer,
+} from '@/app/components/MonthCustomerReportFolders'
 
 function formatMonthYearSv(monthKey: string) {
   const raw = new Date(`${monthKey}-01T12:00:00`).toLocaleDateString('sv-SE', {
@@ -59,7 +62,15 @@ export default function MyReportsPage() {
   const [selectedStatus, setSelectedStatus] = useState('ALL')
   const [selectedMonth, setSelectedMonth] = useState('ALL')
   const [submitSuccess, setSubmitSuccess] = useState<{ title: string; message: string } | null>(null)
-  const [monthSubmitConfirm, setMonthSubmitConfirm] = useState<string | null>(null)
+  const [submitConfirm, setSubmitConfirm] = useState<
+    | { scope: 'all'; month: string; count: number }
+    | { scope: 'customer'; month: string; customerId: string; customerName: string; count: number }
+    | null
+  >(null)
+  const [submittingMonth, setSubmittingMonth] = useState(false)
+  const [submittingCustomerId, setSubmittingCustomerId] = useState<string | null>(null)
+  const [reportToDelete, setReportToDelete] = useState<TimeReport | null>(null)
+  const [deletingReportId, setDeletingReportId] = useState<string | null>(null)
   const monthOptions = buildRecentMonthOptions(24)
 
   useEffect(() => {
@@ -131,16 +142,43 @@ export default function MyReportsPage() {
     }
   }
 
-  const submitMonth = async (month: string) => {
+  const deleteReport = async (reportId: string) => {
     try {
+      setDeletingReportId(reportId)
+      const token = localStorage.getItem('token')
+      const response = await fetch(`/api/time-reports/${reportId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        throw new Error(data.error || 'Kunde inte ta bort tidrapporten')
+      }
+      setReportToDelete(null)
+      fetchReports()
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : 'Kunde inte ta bort tidrapporten')
+    } finally {
+      setDeletingReportId(null)
+    }
+  }
+
+  const submitMonth = async (month: string, customerId?: string) => {
+    try {
+      setSubmittingMonth(true)
+      if (customerId) setSubmittingCustomerId(customerId)
+
       const token = localStorage.getItem('token')
       const response = await fetch(`/api/time-reports/submit`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
+          Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ month }),
+        body: JSON.stringify({
+          month,
+          ...(customerId ? { customerId } : {}),
+        }),
       })
 
       if (response.ok) {
@@ -149,22 +187,27 @@ export default function MyReportsPage() {
           title: 'Tidrapporter inskickade',
           message:
             data.message ||
-            'Månadens tidrapporter har skickats till administratören för granskning.',
+            'Tidrapporterna har skickats till administratören för granskning.',
         })
         fetchReports()
       } else {
         const data = await response.json()
-        alert(data.error || 'Kunde inte skicka in månadens rapporter')
+        alert(data.error || 'Kunde inte skicka in tidrapporter')
       }
     } catch (error) {
       console.error('Fel vid inlämning:', error)
+    } finally {
+      setSubmittingMonth(false)
+      setSubmittingCustomerId(null)
     }
   }
 
-  const draftCountForConfirmedMonth =
-    monthSubmitConfirm === null
-      ? 0
-      : reports.filter((r) => r.month === monthSubmitConfirm && r.status === 'DRAFT').length
+  const monthGroupedReports =
+    selectedMonth !== 'ALL' ? groupReportsByCustomer(reports) : []
+  const monthDraftCount =
+    selectedMonth !== 'ALL'
+      ? reports.filter((r) => r.status === 'DRAFT').length
+      : 0
 
   return (
     <div className="app-shell" style={{ backgroundColor: '#E8E8D8', minHeight: '100vh' }}>
@@ -230,8 +273,44 @@ export default function MyReportsPage() {
               Skapa din första rapport
             </Link>
           </div>
+        ) : selectedMonth !== 'ALL' ? (
+          <div>
+            <p className="text-sm text-gray-600 mb-4">
+              Tidrapporterna för {formatMonthYearSv(selectedMonth)} är sorterade per kund. Skicka en
+              kundmapp i taget, eller alla utkast på en gång.
+            </p>
+            <MonthCustomerReportFolders
+              groups={monthGroupedReports}
+              totalDraftCount={monthDraftCount}
+              submitting={submittingMonth}
+              submittingCustomerId={submittingCustomerId}
+              onSubmitAll={() =>
+                setSubmitConfirm({ scope: 'all', month: selectedMonth, count: monthDraftCount })
+              }
+              onSubmitCustomer={(customerId, customerName) => {
+                const count =
+                  monthGroupedReports.find((g) => g.customerId === customerId)?.draftCount ?? 0
+                setSubmitConfirm({
+                  scope: 'customer',
+                  month: selectedMonth,
+                  customerId,
+                  customerName,
+                  count,
+                })
+              }}
+              onDeleteReport={(r) => {
+                const full = reports.find((rep) => rep.id === r.id)
+                if (full) setReportToDelete(full)
+              }}
+              deletingReportId={deletingReportId}
+            />
+          </div>
         ) : (
-          <div className="overflow-x-auto">
+          <div>
+            <p className="text-sm text-gray-600 mb-4">
+              Välj en månad ovan för att se kundmappar och skicka in tidrapporter.
+            </p>
+            <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
@@ -259,31 +338,29 @@ export default function MyReportsPage() {
                         {getStatusText(report.status)}
                       </span>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm">
-                      {report.status === 'DRAFT' && (
-                        <button
-                          type="button"
-                          onClick={() => setMonthSubmitConfirm(report.month)}
-                          className="text-blue-600 hover:text-blue-800 mr-4"
-                        >
-                          Skicka månaden
-                        </button>
-                      )}
+                    <td className="px-6 py-4 whitespace-nowrap text-sm space-x-3">
                       <Link
                         href={`/time-report/${report.id}`}
                         className="text-green-600 hover:text-green-800 underline font-medium"
                       >
-                        {report.status === 'APPROVED'
-                          ? 'Visa'
-                          : report.status === 'DRAFT'
-                            ? 'Redigera utkast'
-                            : 'Visa / ändra'}
+                        {report.status === 'DRAFT' ? 'Redigera' : 'Visa'}
                       </Link>
+                      {report.status === 'DRAFT' && (
+                        <button
+                          type="button"
+                          onClick={() => setReportToDelete(report)}
+                          disabled={deletingReportId === report.id}
+                          className="text-red-600 hover:text-red-800 disabled:opacity-50"
+                        >
+                          {deletingReportId === report.id ? 'Tar bort...' : 'Ta bort'}
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
         )}
 
@@ -312,19 +389,47 @@ export default function MyReportsPage() {
       </div>
 
       <ConfirmDialog
-        open={monthSubmitConfirm !== null}
-        title="Skicka in tidrapporter?"
+        open={reportToDelete !== null}
+        title="Ta bort tidrapport?"
         message={
-          monthSubmitConfirm
-            ? `Du håller på att skicka in alla utkast för ${formatMonthYearSv(monthSubmitConfirm)} till administratören (${draftCountForConfirmedMonth} ${draftCountForConfirmedMonth === 1 ? 'rapport' : 'rapporter'}). Är du säker på att du vill fortsätta?`
+          reportToDelete
+            ? `Vill du ta bort tidrapporten för ${reportToDelete.customer.name} den ${new Date(reportToDelete.date).toLocaleDateString('sv-SE')}? Detta går inte att ångra.`
+            : ''
+        }
+        confirmLabel="Ja, ta bort"
+        onCancel={() => {
+          if (!deletingReportId) setReportToDelete(null)
+        }}
+        onConfirm={() => {
+          if (reportToDelete) void deleteReport(reportToDelete.id)
+        }}
+      />
+
+      <ConfirmDialog
+        open={submitConfirm !== null}
+        title={
+          submitConfirm?.scope === 'customer'
+            ? `Skicka ${submitConfirm.customerName}?`
+            : 'Skicka alla tidrapporter?'
+        }
+        message={
+          submitConfirm
+            ? submitConfirm.scope === 'customer'
+              ? `Du skickar in ${submitConfirm.count} utkast för ${submitConfirm.customerName} (${formatMonthYearSv(submitConfirm.month)}). Fortsätta?`
+              : `Du skickar in alla ${submitConfirm.count} utkast för ${formatMonthYearSv(submitConfirm.month)}. Fortsätta?`
             : ''
         }
         confirmLabel="Ja, skicka in"
-        onCancel={() => setMonthSubmitConfirm(null)}
+        onCancel={() => setSubmitConfirm(null)}
         onConfirm={() => {
-          const month = monthSubmitConfirm
-          setMonthSubmitConfirm(null)
-          if (month) void submitMonth(month)
+          if (!submitConfirm) return
+          const pending = submitConfirm
+          setSubmitConfirm(null)
+          if (pending.scope === 'customer') {
+            void submitMonth(pending.month, pending.customerId)
+          } else {
+            void submitMonth(pending.month)
+          }
         }}
       />
 

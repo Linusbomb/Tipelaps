@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { verifyToken } from '@/lib/auth'
-import { employmentHasEnded } from '@/lib/accountStatus'
+import { resolveTimeReportSubject } from '@/lib/timeReportSubject'
 
 export const dynamic = 'force-dynamic'
 
@@ -23,15 +23,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Ej auktoriserad' }, { status: 401 })
     }
 
-    if (await employmentHasEnded(userId)) {
-      return NextResponse.json(
-        { error: 'Ditt arbetskonto är avslutat.', inactive: true },
-        { status: 403 }
-      )
-    }
-
     const body = await request.json()
-    const { month, reportId } = body
+    const { month, reportId, customerId, forUserId } = body
+
+    const subject = await resolveTimeReportSubject(userId, forUserId)
+    if (!subject.ok) return subject.response
+
+    const reportUserId = subject.reportUserId
 
     let targetMonth = month as string | undefined
 
@@ -41,7 +39,7 @@ export async function POST(request: NextRequest) {
       const report = await prisma.timeReport.findFirst({
         where: {
           id: reportId,
-          userId,
+          userId: reportUserId,
         },
         select: {
           month: true,
@@ -65,38 +63,49 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Hämta alla DRAFT-rapporter för månaden
+    const draftWhere = {
+      userId: reportUserId,
+      month: targetMonth,
+      status: 'DRAFT' as const,
+      ...(typeof customerId === 'string' && customerId.trim()
+        ? { customerId: customerId.trim() }
+        : {}),
+    }
+
     const draftReports = await prisma.timeReport.findMany({
-      where: {
-        userId,
-        month: targetMonth,
-        status: 'DRAFT',
-      },
+      where: draftWhere,
+      include: { customer: { select: { name: true } } },
     })
 
     if (draftReports.length === 0) {
+      const scopeHint =
+        typeof customerId === 'string' && customerId.trim()
+          ? ' för den valda kunden'
+          : ' för denna månad'
       return NextResponse.json(
-        { error: 'Inga tidrapporter att skicka in för denna månad' },
+        { error: `Inga utkast att skicka in${scopeHint}` },
         { status: 400 }
       )
     }
 
-    // Uppdatera alla rapporter till SUBMITTED
     const updatedReports = await prisma.timeReport.updateMany({
-      where: {
-        userId,
-        month: targetMonth,
-        status: 'DRAFT',
-      },
+      where: draftWhere,
       data: {
         status: 'SUBMITTED',
         submittedAt: new Date(),
       },
     })
 
+    const customerName = draftReports[0]?.customer?.name
+    const scopeLabel =
+      customerName && typeof customerId === 'string' && customerId.trim()
+        ? ` för ${customerName}`
+        : ''
+
     return NextResponse.json({
-      message: `${updatedReports.count} tidrapporter har skickats in`,
+      message: `${updatedReports.count} tidrapporter${scopeLabel} har skickats in`,
       count: updatedReports.count,
+      customerName: customerName ?? null,
     })
   } catch (error: any) {
     console.error('Fel vid inlämning av tidrapporter:', error)

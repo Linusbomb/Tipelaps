@@ -5,6 +5,7 @@ import { format } from 'date-fns'
 import { sv } from 'date-fns/locale'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
+import { resolveOvertimeHours } from '@/lib/overtime'
 
 export const dynamic = 'force-dynamic'
 
@@ -159,6 +160,12 @@ export async function GET(request: NextRequest) {
         }
         doc.text(`Totalt timmar: ${totalHours.toFixed(1)}h`, margin, yPosition)
         yPosition += lineHeight
+
+        const overtimeHours = resolveOvertimeHours(report.overtimeHours, totalHours)
+        if (overtimeHours > 0) {
+          doc.text(`Övertid (över 8 h): ${overtimeHours.toFixed(1)}h`, margin, yPosition)
+          yPosition += lineHeight
+        }
 
         if (otherNonMachineHours > 0) {
           doc.text(`Övrig tid (ej fordonstimmar): ${otherNonMachineHours.toFixed(1)}h`, margin, yPosition)

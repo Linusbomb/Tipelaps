@@ -5,11 +5,12 @@ import { employmentHasEnded } from '@/lib/accountStatus'
 import { adminEffectiveCompanyId } from '@/lib/apiAdmin'
 import { parseDateOnlyLocal } from '@/lib/parseDateOnlyLocal'
 import { isBuyerReferenceUnsupported } from '@/lib/prismaCompat'
-import { cleanOvertimeEntries, sumOvertimeHours } from '@/lib/overtime'
+import { persistReportOvertimeHours } from '@/lib/overtime'
 
 export const dynamic = 'force-dynamic'
 
-const EDITABLE_STATUSES = ['DRAFT', 'SUBMITTED']
+/** Personal får endast redigera/ta bort utkast – inte efter inlämning till admin. */
+const EDITABLE_STATUSES = ['DRAFT']
 
 async function getUserId(request: NextRequest): Promise<string | null> {
   const authHeader = request.headers.get('authorization')
@@ -39,7 +40,6 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
       include: {
         customer: { select: { id: true, name: true } },
         entries: { orderBy: { createdAt: 'asc' } },
-        overtimeEntries: { orderBy: { createdAt: 'asc' } },
       },
     })
 
@@ -82,21 +82,13 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
 
     if (!EDITABLE_STATUSES.includes(existing.status)) {
       return NextResponse.json(
-        { error: 'Godkända tidrapporter kan inte ändras här.' },
+        { error: 'Inskickade eller godkända tidrapporter kan inte ändras.' },
         { status: 400 }
       )
     }
 
     const body = await request.json()
-    const { customerId, date, entries, missingHoursReason, buyerReference, overtimeEntries } = body
-
-    let cleanedOvertime
-    try {
-      cleanedOvertime = cleanOvertimeEntries(overtimeEntries)
-    } catch (e: any) {
-      return NextResponse.json({ error: e.message ?? 'Ogiltig övertid' }, { status: 400 })
-    }
-    const overtimeTotal = sumOvertimeHours(cleanedOvertime)
+    const { customerId, date, entries, missingHoursReason, buyerReference } = body
 
     if (!customerId || !date || !Array.isArray(entries) || entries.length === 0) {
       return NextResponse.json(
@@ -187,9 +179,6 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
         await tx.timeReportEntry.deleteMany({
           where: { timeReportId: existing.id },
         })
-        await tx.overtimeEntry.deleteMany({
-          where: { timeReportId: existing.id },
-        })
 
         await tx.timeReport.update({
           where: { id: existing.id },
@@ -200,7 +189,6 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
             month,
             totalHours,
             customerTotalHours: totalHours,
-            overtimeHours: overtimeTotal,
             missingHoursReason: remainingHours > 0 ? String(missingHoursReason).trim() : null,
             ...(includeBuyerReference ? { buyerReference: buyerRefTrimmed } : {}),
             entries: {
@@ -212,14 +200,6 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
                   entry.machineType && entry.registrationNumber
                     ? `${entry.machineType} (${entry.registrationNumber})`
                     : null,
-              })),
-            },
-            overtimeEntries: {
-              create: cleanedOvertime.map((row) => ({
-                startTime: row.startTime,
-                endTime: row.endTime,
-                hours: row.hours,
-                note: row.note,
               })),
             },
           },
@@ -236,12 +216,13 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
       await updateReport(false)
     }
 
+    await persistReportOvertimeHours(existing.id, totalHours)
+
     const updated = await prisma.timeReport.findUnique({
       where: { id: existing.id },
       include: {
         customer: { select: { id: true, name: true } },
         entries: { orderBy: { createdAt: 'asc' } },
-        overtimeEntries: { orderBy: { createdAt: 'asc' } },
       },
     })
 
@@ -256,5 +237,44 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
   } catch (error) {
     console.error('Fel vid uppdatering av tidrapport:', error)
     return NextResponse.json({ error: 'Kunde inte uppdatera tidrapport' }, { status: 500 })
+  }
+}
+
+export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
+  try {
+    const userId = await getUserId(request)
+    if (!userId) {
+      return NextResponse.json({ error: 'Ej auktoriserad' }, { status: 401 })
+    }
+
+    if (await employmentHasEnded(userId)) {
+      return NextResponse.json(
+        { error: 'Ditt arbetskonto är avslutat.', inactive: true },
+        { status: 403 }
+      )
+    }
+
+    const existing = await prisma.timeReport.findFirst({
+      where: { id: params.id, userId },
+      select: { id: true, status: true },
+    })
+
+    if (!existing) {
+      return NextResponse.json({ error: 'Tidrapport hittades inte' }, { status: 404 })
+    }
+
+    if (existing.status !== 'DRAFT') {
+      return NextResponse.json(
+        { error: 'Endast sparade utkast kan tas bort. Inskickade rapporter kan inte raderas.' },
+        { status: 400 }
+      )
+    }
+
+    await prisma.timeReport.delete({ where: { id: existing.id } })
+
+    return NextResponse.json({ message: 'Tidrapporten har tagits bort' })
+  } catch (error) {
+    console.error('Fel vid borttagning av tidrapport:', error)
+    return NextResponse.json({ error: 'Kunde inte ta bort tidrapport' }, { status: 500 })
   }
 }

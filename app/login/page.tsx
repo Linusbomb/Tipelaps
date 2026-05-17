@@ -4,20 +4,6 @@ import { useState, useEffect, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 
-type LoginResponseUser = {
-  id: string
-  name: string
-  email: string
-  role: string
-  companyId: string | null
-}
-
-type LoginApiResponse = {
-  error?: string
-  token?: string
-  user?: LoginResponseUser
-}
-
 function LoginForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -29,7 +15,6 @@ function LoginForm() {
   const [loading, setLoading] = useState(false)
   const [success, setSuccess] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
-  const [rememberCredentials, setRememberCredentials] = useState(false)
   const [userType, setUserType] = useState<'admin' | 'employee' | null>(null)
 
   useEffect(() => {
@@ -55,9 +40,6 @@ function LoginForm() {
     if (type === 'admin' || type === 'employee') {
       setUserType(type)
     }
-    if (localStorage.getItem('rememberLoginDecision') === 'accepted') {
-      setRememberCredentials(true)
-    }
   }, [searchParams])
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -71,46 +53,26 @@ function LoginForm() {
       const response = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'same-origin',
         body: JSON.stringify({
           ...formData,
           loginType: userType,
         }),
       })
 
-      const raw = await response.text()
-      let data: LoginApiResponse = {}
-      if (raw) {
-        try {
-          data = JSON.parse(raw) as LoginApiResponse
-        } catch {
-          throw new Error(
-            response.ok
-              ? 'Ogiltigt svar från servern.'
-              : `Serverfel (${response.status}). Försök igen om en stund.`
-          )
-        }
-      }
+      console.log('Svar från server:', response.status, response.statusText)
+      
+      const data = await response.json()
+      console.log('Data från server:', data)
 
       if (!response.ok) {
-        throw new Error(data.error || `Inloggning misslyckades (${response.status})`)
+        throw new Error(data.error || 'Inloggning misslyckades')
       }
 
-      const token = data.token
-      const userPayload = data.user
-      if (typeof token !== 'string' || token.length === 0) {
+      if (!data.token || !data.user) {
         throw new Error('Ogiltigt svar från servern')
       }
-      if (
-        userPayload == null ||
-        typeof userPayload !== 'object' ||
-        !('role' in userPayload)
-      ) {
-        throw new Error('Ogiltigt svar från servern')
-      }
-      const user: LoginResponseUser = userPayload as LoginResponseUser
-      const isSuperAdmin = user.role === 'SUPERADMIN'
-      const isAdminUser = isSuperAdmin || user.role === 'ENTREPRENEUR' || user.role === 'PAYROLL_COORDINATOR'
+
+      const isAdminUser = data.user.role === 'ENTREPRENEUR' || data.user.role === 'PAYROLL_COORDINATOR'
 
       if (userType === 'admin' && !isAdminUser) {
         throw new Error('Detta konto är Personal. Logga in via Personal-rutan istället.')
@@ -119,25 +81,34 @@ function LoginForm() {
         throw new Error('Detta konto är Admin. Logga in via Admin-rutan istället.')
       }
 
-      if (rememberCredentials) {
-        localStorage.setItem('rememberLoginDecision', 'accepted')
+      // Fråga endast första gången om inloggningsuppgifter ska sparas
+      const rememberDecision = localStorage.getItem('rememberLoginDecision')
+      if (!rememberDecision) {
+        const shouldSave = window.confirm(
+          'Vill du spara e-postadress och lösenord på den här enheten?'
+        )
+        localStorage.setItem('rememberLoginDecision', shouldSave ? 'accepted' : 'declined')
+
+        if (shouldSave) {
+          localStorage.setItem(
+            'savedLoginCredentials',
+            JSON.stringify({ email: formData.email, password: formData.password })
+          )
+        } else {
+          localStorage.removeItem('savedLoginCredentials')
+        }
+      } else if (rememberDecision === 'accepted') {
+        // Om användaren redan godkänt, uppdatera sparade uppgifter vid lyckad inloggning
         localStorage.setItem(
           'savedLoginCredentials',
           JSON.stringify({ email: formData.email, password: formData.password })
         )
-      } else {
-        localStorage.removeItem('savedLoginCredentials')
-        localStorage.removeItem('rememberLoginDecision')
       }
 
-      // Spara token i localStorage. Rensa eventuell tidigare superadmin-impersonering
-      // så banner inte felaktigt visas efter att en ny session påbörjats.
+      // Spara token i localStorage
       try {
-        localStorage.removeItem('superadminToken')
-        localStorage.removeItem('superadminUser')
-        localStorage.removeItem('impersonatedAs')
-        localStorage.setItem('token', token)
-        localStorage.setItem('user', JSON.stringify(user))
+        localStorage.setItem('token', data.token)
+        localStorage.setItem('user', JSON.stringify(data.user))
         console.log('Token och användardata sparade i localStorage')
       } catch (storageError) {
         console.error('Fel vid sparande i localStorage:', storageError)
@@ -145,10 +116,8 @@ function LoginForm() {
       }
 
       // Omdirigera baserat på roll - använd window.location för full sidladdning
-      const redirectPath = isSuperAdmin
-        ? '/superadmin'
-        : isAdminUser
-        ? '/admin'
+      const redirectPath = isAdminUser
+        ? '/admin' 
         : '/time-report'
       
       console.log('Omdirigerar till:', redirectPath)
@@ -284,20 +253,6 @@ function LoginForm() {
                 </button>
               </div>
             </div>
-          </div>
-
-          <div className="flex items-center">
-            <input
-              id="remember"
-              name="remember"
-              type="checkbox"
-              checked={rememberCredentials}
-              onChange={(e) => setRememberCredentials(e.target.checked)}
-              className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-            />
-            <label htmlFor="remember" className="ml-2 block text-sm text-gray-700">
-              Spara e-post och lösenord på den här enheten
-            </label>
           </div>
 
           <div>

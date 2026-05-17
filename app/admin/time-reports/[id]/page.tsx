@@ -2,12 +2,9 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import TimeOfDayInput from '@/app/components/TimeOfDayInput'
-import { calculateOvertimeHours } from '@/lib/overtime'
-
-type OvertimeRow = { startTime: string; endTime: string; note: string }
-
-const OVERTIME_TIME_RE = /^([01]\d|2[0-3]):([0-5]\d)$/
+import HoursInput from '@/app/components/HoursInput'
+import OvertimeSummary from '@/app/components/OvertimeSummary'
+import { computeOvertimeHours } from '@/lib/overtime'
 
 const MACHINE_OPTIONS = [
   'Hjullastare',
@@ -85,8 +82,6 @@ export default function AdminTimeReportDetailPage() {
   const [missingHoursReason, setMissingHoursReason] = useState('')
   const [buyerReference, setBuyerReference] = useState('')
   const [entries, setEntries] = useState<EntryRow[]>([])
-  const [overtimeRows, setOvertimeRows] = useState<OvertimeRow[]>([])
-  const [hasOvertime, setHasOvertime] = useState(false)
   const [customers, setCustomers] = useState<Customer[]>([])
   const [newCustomerName, setNewCustomerName] = useState('')
   const [creatingCustomer, setCreatingCustomer] = useState(false)
@@ -97,52 +92,7 @@ export default function AdminTimeReportDetailPage() {
     [entries]
   )
   const remainingHours = useMemo(() => Math.max(0, totalHours - totalMachineHours), [totalHours, totalMachineHours])
-
-  const overtimeRowsForApi = useMemo(
-    () =>
-      hasOvertime
-        ? overtimeRows
-            .map((row) => ({
-              startTime: row.startTime.trim(),
-              endTime: row.endTime.trim(),
-              note: row.note.trim(),
-            }))
-            .filter((row) => row.startTime || row.endTime || row.note)
-        : [],
-    [hasOvertime, overtimeRows]
-  )
-
-  const totalOvertime = useMemo(() => {
-    if (!hasOvertime) return 0
-    return overtimeRows.reduce((sum, row) => {
-      if (!OVERTIME_TIME_RE.test(row.startTime) || !OVERTIME_TIME_RE.test(row.endTime)) return sum
-      const h = calculateOvertimeHours(row.startTime, row.endTime)
-      return sum + (Number.isNaN(h) ? 0 : h)
-    }, 0)
-  }, [hasOvertime, overtimeRows])
-
-  const addOvertimeRow = () =>
-    setOvertimeRows((prev) => [...prev, { startTime: '', endTime: '', note: '' }])
-
-  const removeOvertimeRow = (index: number) =>
-    setOvertimeRows((prev) => prev.filter((_, i) => i !== index))
-
-  const updateOvertimeRow = (index: number, field: keyof OvertimeRow, value: string) =>
-    setOvertimeRows((prev) => {
-      const next = [...prev]
-      next[index] = { ...next[index], [field]: value }
-      return next
-    })
-
-  const handleOvertimeToggle = (checked: boolean) => {
-    setHasOvertime(checked)
-    if (checked && overtimeRows.length === 0) {
-      setOvertimeRows([{ startTime: '', endTime: '', note: '' }])
-    }
-    if (!checked) {
-      setOvertimeRows([])
-    }
-  }
+  const overtimeHours = useMemo(() => computeOvertimeHours(totalHours), [totalHours])
 
   useEffect(() => {
     fetchData()
@@ -193,16 +143,6 @@ export default function AdminTimeReportDetailPage() {
           ? rows
           : [{ hours: 0, machineHours: null, machineType: '', registrationNumber: '', description: '', location: '', referenceNumber: '' }]
       )
-
-      const otFromApi: OvertimeRow[] = Array.isArray(reportData.overtimeEntries)
-        ? reportData.overtimeEntries.map((row: any) => ({
-            startTime: typeof row.startTime === 'string' ? row.startTime : '',
-            endTime: typeof row.endTime === 'string' ? row.endTime : '',
-            note: typeof row.note === 'string' ? row.note : '',
-          }))
-        : []
-      setOvertimeRows(otFromApi)
-      setHasOvertime(otFromApi.length > 0)
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Något gick fel')
     } finally {
@@ -263,23 +203,6 @@ export default function AdminTimeReportDetailPage() {
         return
       }
 
-      if (hasOvertime) {
-        const invalidRow = overtimeRowsForApi.find(
-          (row) =>
-            !OVERTIME_TIME_RE.test(row.startTime) ||
-            !OVERTIME_TIME_RE.test(row.endTime) ||
-            calculateOvertimeHours(row.startTime, row.endTime) <= 0
-        )
-        if (invalidRow) {
-          setError('Övertid: ange giltiga start- och sluttider (HH:mm) på varje rad.')
-          return
-        }
-        if (overtimeRowsForApi.length === 0) {
-          setError('Övertid är ikryssat men inga rader är ifyllda.')
-          return
-        }
-      }
-
       const token = localStorage.getItem('token')
       if (!token) {
         router.push('/login')
@@ -306,11 +229,6 @@ export default function AdminTimeReportDetailPage() {
             location: e.location,
             referenceNumber: e.referenceNumber,
           })),
-          overtimeEntries: overtimeRowsForApi.map((row) => ({
-            startTime: row.startTime,
-            endTime: row.endTime,
-            note: row.note || null,
-          })),
         }),
       })
 
@@ -320,15 +238,6 @@ export default function AdminTimeReportDetailPage() {
       setStatus(data.status || status)
       if (data.month) setMonth(data.month)
       if (data.entries) setEntries((data.entries as any[]).map(entryFromApi))
-      if (Array.isArray(data.overtimeEntries)) {
-        const ot: OvertimeRow[] = data.overtimeEntries.map((row: any) => ({
-          startTime: typeof row.startTime === 'string' ? row.startTime : '',
-          endTime: typeof row.endTime === 'string' ? row.endTime : '',
-          note: typeof row.note === 'string' ? row.note : '',
-        }))
-        setOvertimeRows(ot)
-        setHasOvertime(ot.length > 0)
-      }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Något gick fel')
     } finally {
@@ -496,6 +405,7 @@ export default function AdminTimeReportDetailPage() {
         <div className="mb-6 p-4 bg-gray-50 border border-gray-200 rounded-md space-y-1">
           <p className="text-lg font-semibold text-gray-900">Totalt arbetstid: {totalHours.toFixed(1)} timmar</p>
           <p className="text-sm text-gray-700">Totalt fordonstid: {totalMachineHours.toFixed(1)} timmar</p>
+          <OvertimeSummary overtimeHours={overtimeHours} />
           {remainingHours > 0 ? (
             <div className="space-y-2">
               <p className="text-sm text-orange-700 font-medium">
@@ -528,27 +438,18 @@ export default function AdminTimeReportDetailPage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
                   <div>
                     <label className="block text-xs font-medium text-gray-600 mb-1">Timmar (arbete)</label>
-                    <input
-                      type="number"
-                      step="0.5"
-                      min="0"
+                    <HoursInput
                       value={entry.hours}
-                      onChange={(e) => updateEntry(index, { hours: parseFloat(e.target.value) || 0 })}
+                      onChange={(hours) => updateEntry(index, { hours: hours ?? 0 })}
                       className="w-full px-3 py-2 border rounded-md"
                     />
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-600 mb-1">Fordonstimmar (valfritt)</label>
-                    <input
-                      type="number"
-                      step="0.5"
-                      min="0"
-                      value={entry.machineHours ?? ''}
-                      onChange={(e) =>
-                        updateEntry(index, {
-                          machineHours: e.target.value === '' ? null : parseFloat(e.target.value),
-                        })
-                      }
+                    <HoursInput
+                      optional
+                      value={entry.machineHours}
+                      onChange={(machineHours) => updateEntry(index, { machineHours })}
                       className="w-full px-3 py-2 border rounded-md"
                     />
                   </div>
@@ -624,6 +525,21 @@ export default function AdminTimeReportDetailPage() {
               </div>
             ))}
           </div>
+
+          <div className="mt-4 p-4 bg-gray-50 border border-gray-200 rounded-md space-y-1">
+            <p className="text-lg font-semibold text-gray-900">
+              Totalt arbetstid: {totalHours.toFixed(1)} timmar
+            </p>
+            <p className="text-sm text-gray-700">
+              Totalt fordonstid: {totalMachineHours.toFixed(1)} timmar
+            </p>
+            <OvertimeSummary overtimeHours={overtimeHours} />
+            {remainingHours > 0 && (
+              <p className="text-sm text-orange-700 font-medium mt-1">
+                Resterande tid utan fordon: {remainingHours.toFixed(1)} timmar
+              </p>
+            )}
+          </div>
         </div>
 
         {remainingHours > 0 && (
@@ -639,100 +555,6 @@ export default function AdminTimeReportDetailPage() {
             />
           </div>
         )}
-
-        <div className="mb-6 border border-gray-200 rounded-md p-4 bg-gray-50">
-          <label className="flex items-center gap-2 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              className="h-4 w-4 accent-green-800"
-              checked={hasOvertime}
-              onChange={(e) => handleOvertimeToggle(e.target.checked)}
-            />
-            <span className="text-sm font-semibold text-gray-800">
-              Rapporten innehåller övertid
-            </span>
-          </label>
-          {hasOvertime && (
-            <div className="mt-4 space-y-3">
-              <p className="text-xs text-gray-600">
-                Justera tidsintervall för övertiden (HH:mm). Sluttid mindre än starttid räknas
-                som +24h.
-              </p>
-              {overtimeRows.map((row, index) => {
-                const valid =
-                  OVERTIME_TIME_RE.test(row.startTime) && OVERTIME_TIME_RE.test(row.endTime)
-                const calculated = valid
-                  ? calculateOvertimeHours(row.startTime, row.endTime)
-                  : Number.NaN
-                return (
-                  <div
-                    key={index}
-                    className="grid grid-cols-1 md:grid-cols-[1fr_1fr_2fr_auto] gap-2 items-end p-3 border border-gray-200 rounded-md bg-white"
-                  >
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Från</label>
-                      <TimeOfDayInput
-                        value={row.startTime}
-                        onChange={(v) => updateOvertimeRow(index, 'startTime', v)}
-                        className="w-full px-3 py-2 border rounded-md"
-                        ariaLabel="Övertid från (HH:mm)"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Till</label>
-                      <TimeOfDayInput
-                        value={row.endTime}
-                        onChange={(v) => updateOvertimeRow(index, 'endTime', v)}
-                        className="w-full px-3 py-2 border rounded-md"
-                        ariaLabel="Övertid till (HH:mm)"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">
-                        Anteckning <span className="font-normal text-gray-500">(valfritt)</span>
-                      </label>
-                      <input
-                        type="text"
-                        value={row.note}
-                        onChange={(e) => updateOvertimeRow(index, 'note', e.target.value)}
-                        className="w-full px-3 py-2 border rounded-md"
-                        maxLength={200}
-                      />
-                    </div>
-                    <div className="flex md:flex-col md:items-end justify-between gap-1">
-                      <span className="text-sm font-semibold text-green-900 tabular-nums">
-                        {valid && !Number.isNaN(calculated)
-                          ? `${calculated.toFixed(1)} h`
-                          : '— h'}
-                      </span>
-                      {overtimeRows.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={() => removeOvertimeRow(index)}
-                          className="text-xs text-red-600 hover:text-red-800 underline"
-                        >
-                          Ta bort
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                )
-              })}
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <button
-                  type="button"
-                  onClick={addOvertimeRow}
-                  className="px-3 py-1.5 text-sm rounded-md bg-gray-200 text-gray-800 hover:bg-gray-300"
-                >
-                  + Lägg till övertidsrad
-                </button>
-                <span className="text-sm font-semibold text-green-900">
-                  Totalt övertid: {totalOvertime.toFixed(1)} timmar
-                </span>
-              </div>
-            </div>
-          )}
-        </div>
 
         <div className="flex flex-wrap gap-3 pt-4 border-t border-gray-200">
           <button

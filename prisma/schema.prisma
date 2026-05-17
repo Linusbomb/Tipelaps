@@ -17,7 +17,7 @@ model User {
   name      String
   phone     String?  // Telefonnummer
   employeeCategory String? // LASTBILSCHAUFOR, MASKINFORARE, MARKANLAGGARE, TJANSTEMAN
-  role      String   @default("EMPLOYEE") // ENTREPRENEUR, EMPLOYEE, PAYROLL_COORDINATOR
+  role      String   @default("EMPLOYEE") // SUPERADMIN, ENTREPRENEUR, EMPLOYEE, PAYROLL_COORDINATOR
   companyId String?
   company   Company? @relation("CompanyEmployees", fields: [companyId], references: [id])
   ownedCompany Company? @relation("CompanyOwner")
@@ -73,7 +73,7 @@ model TimeReport {
   year      Int      // År för tidrapporten
   totalHours Float
   customerTotalHours Float // Fakturerbar tid mot denna kund (= total arbetad tid på rapporten, oberoende av fordonstimmar)
-  overtimeHours Float @default(0) // Sammanlagd registrerad övertid på rapporten (cache för snabba löneuppställningar)
+  overtimeHours Float @default(0) // Timmar över 8 h samma dag (beräknas från totalHours vid sparning)
   missingHoursReason String? // Redovisning av vad som fattas om inte 8 timmar
   buyerReference String? // Valfri beställarreferens (t.ex. kundens order-/arbetsnummer)
   status    String   @default("DRAFT") // DRAFT = i buffert, SUBMITTED = skickad in, APPROVED = godkänd/skickad till kund
@@ -84,22 +84,6 @@ model TimeReport {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   entries   TimeReportEntry[]
-  overtimeEntries OvertimeEntry[]
-}
-
-/// Registrerad övertid kopplad till en tidrapport (intervall HH:mm–HH:mm + beräknat antal timmar).
-model OvertimeEntry {
-  id           String   @id @default(cuid())
-  timeReportId String
-  timeReport   TimeReport @relation(fields: [timeReportId], references: [id], onDelete: Cascade)
-  startTime    String   // "HH:mm"
-  endTime      String   // "HH:mm"
-  hours        Float    // Beräknad längd (slut-tid kan ligga efter midnatt – då räknas det som +24h)
-  note         String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-
-  @@index([timeReportId])
 }
 
 model TimeReportEntry {
@@ -189,6 +173,8 @@ model VacationWeek {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   year      Int
   week      Int
+  // JSON-lista med ISO-vardagar 1-5 (man-fre). Null = hela arbetsveckan.
+  days      String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -197,20 +183,19 @@ model VacationWeek {
 }
 
 /// Revisionslogg för säkerhetskänsliga händelser (GDPR – ansvar och spårbarhet).
-/// Inga relationer (FK) – så att rader bevaras även om aktör/mål raderas.
 model AuditLog {
   id          String   @id @default(cuid())
   createdAt   DateTime @default(now())
-  action      String   // t.ex. LOGIN_SUCCESS, COMPANY_CREATE, IMPERSONATE_START
-  actorId     String?  // användar-id för den som utförde händelsen (null = okänt)
+  action      String
+  actorId     String?
   actorEmail  String?
   actorRole   String?
-  targetType  String?  // t.ex. Company, User
+  targetType  String?
   targetId    String?
-  companyId   String?  // tenant-tillhörighet om relevant
+  companyId   String?
   ipAddress   String?
   userAgent   String?
-  details     Json?    // godtyckliga detaljer
+  details     Json?
 
   @@index([companyId, createdAt])
   @@index([actorId, createdAt])

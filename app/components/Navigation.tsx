@@ -6,11 +6,16 @@ import { useLanguage } from '@/contexts/LanguageContext'
 import { useCallback, useEffect, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { decodeJwtPayload } from '@/lib/decodeJwtPayload'
-import { clearLocalSession } from '@/lib/session'
 
 const PROJECTS_BADGE_EVENT = 'projects-badge-refresh'
 
 const NAV_HIDDEN_PATHS = ['/', '/login', '/register', '/forgot-password', '/reset-password']
+
+function getDashboardHref(role: string | null): string {
+  if (role === 'ENTREPRENEUR' || role === 'PAYROLL_COORDINATOR') return '/dashboard'
+  if (role === 'EMPLOYEE') return '/time-report'
+  return '/'
+}
 
 export default function Navigation() {
   const { t } = useLanguage()
@@ -86,7 +91,8 @@ export default function Navigation() {
   }, [isLoggedIn, userRole, fetchProjectsBadge])
 
   const handleLogout = () => {
-    clearLocalSession({ keepRememberedCredentials: true })
+    localStorage.removeItem('token')
+    localStorage.removeItem('user')
     setIsLoggedIn(false)
     setUserRole(null)
     router.push('/login')
@@ -113,12 +119,12 @@ export default function Navigation() {
         <div className="py-2">
           <div className="flex items-center min-h-16 gap-3">
             <Link
-              href="/"
+              href={getDashboardHref(userRole)}
               className="group inline-flex shrink-0 items-center transition-all duration-200"
             >
               <Image
                 src="/lvtech-logo.png"
-                alt="TimeLaps"
+                alt="LVtech"
                 width={120}
                 height={120}
                 className="h-10 w-auto md:h-12"

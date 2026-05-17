@@ -1,11 +1,13 @@
 import { format } from 'date-fns'
 import { sv } from 'date-fns/locale'
+import { formatOvertimeHours, resolveOvertimeHours } from '@/lib/overtime'
 
 /** Report shape from Prisma include: user, customer, entries[] */
 export function generateReportHTML(report: {
   date: Date | string
   year: number
   customerTotalHours?: number
+  overtimeHours?: number | null
   missingHoursReason?: string | null
   buyerReference?: string | null
   user: { name: string }
@@ -21,6 +23,7 @@ export function generateReportHTML(report: {
 }): string {
   const reportDate = format(new Date(report.date), 'd MMMM yyyy', { locale: sv })
   const totalHours = report.entries.reduce((sum, entry) => sum + entry.hours, 0)
+  const overtimeHours = resolveOvertimeHours(report.overtimeHours, totalHours)
 
   const entryBlocks = report.entries.map((entry, index) => {
     const mh =
@@ -80,6 +83,15 @@ export function generateReportHTML(report: {
     <div class="info-box" style="grid-column: 1 / -1;">
       <label>Beställarens referens</label>
       <div class="value">${String(report.buyerReference).trim()}</div>
+    </div>`
+      : ''
+
+  const overtimeRow =
+    overtimeHours > 0
+      ? `
+    <div class="summary-row" style="color: #b45309;">
+      <span><strong>Övertid (över 8 h samma dag):</strong></span>
+      <span>${formatOvertimeHours(overtimeHours)} timmar</span>
     </div>`
       : ''
 
@@ -230,6 +242,7 @@ export function generateReportHTML(report: {
       <span>Totaltid för ${report.customer.name} (fakturerbar tid):</span>
       <span>${totalHours.toFixed(1)} timmar</span>
     </div>
+    ${overtimeRow}
     ${reasonRow}
   </div>
   <div class="footer">

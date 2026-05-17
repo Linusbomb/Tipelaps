@@ -1,17 +1,17 @@
 'use client'
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useLanguage } from '@/contexts/LanguageContext'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import SuccessDialog from '@/app/components/SuccessDialog'
 import ConfirmDialog from '@/app/components/ConfirmDialog'
-import TimeOfDayInput from '@/app/components/TimeOfDayInput'
-import { calculateOvertimeHours } from '@/lib/overtime'
-
-type OvertimeRow = { startTime: string; endTime: string; note: string }
-
-const TIME_RE = /^([01]\d|2[0-3]):([0-5]\d)$/
+import MonthCustomerReportFolders, {
+  groupReportsByCustomer,
+} from '@/app/components/MonthCustomerReportFolders'
+import HoursInput from '@/app/components/HoursInput'
+import OvertimeSummary from '@/app/components/OvertimeSummary'
+import { computeOvertimeHours } from '@/lib/overtime'
 
 const MACHINE_OPTIONS = [
   'Hjullastare',
@@ -54,52 +54,45 @@ export default function TimeReportPage() {
   ])
   const [missingHoursReason, setMissingHoursReason] = useState('')
   const [buyerReference, setBuyerReference] = useState('')
-  const [hasOvertime, setHasOvertime] = useState(false)
-  const [overtimeRows, setOvertimeRows] = useState<OvertimeRow[]>([])
   const [pendingProjectPrefill, setPendingProjectPrefill] = useState<{
     customerId?: string
     customerName?: string
     address?: string
   } | null>(null)
   const [successFeedback, setSuccessFeedback] = useState<{ title: string; message: string } | null>(null)
-  const [submitConfirmOpen, setSubmitConfirmOpen] = useState(false)
+  const [submitConfirm, setSubmitConfirm] = useState<
+    | { scope: 'all'; count: number }
+    | { scope: 'customer'; customerId: string; customerName: string; count: number }
+    | null
+  >(null)
+  const [submittingCustomerId, setSubmittingCustomerId] = useState<string | null>(null)
+  const [currentUser, setCurrentUser] = useState<{ id: string; name: string; role: string } | null>(null)
+  const [companyEmployees, setCompanyEmployees] = useState<{ id: string; name: string; email: string }[]>([])
+  const [reportForUserId, setReportForUserId] = useState('')
 
-  const getSubmitStatusLabel = (status: string) => {
-    if (status === 'SUBMITTED' || status === 'APPROVED') {
-      return 'Inskickat'
+  const isAdmin =
+    currentUser?.role === 'ENTREPRENEUR' || currentUser?.role === 'PAYROLL_COORDINATOR'
+
+  const reportForUser = useCallback(() => {
+    if (!currentUser) return null
+    if (!isAdmin || reportForUserId === currentUser.id) {
+      return { id: currentUser.id, name: currentUser.name }
     }
-    return 'Ej inskickat'
-  }
+    const emp = companyEmployees.find((e) => e.id === reportForUserId)
+    return emp ? { id: emp.id, name: emp.name } : { id: currentUser.id, name: currentUser.name }
+  }, [currentUser, isAdmin, reportForUserId, companyEmployees])
 
-  const groupedMonthReports = monthReports.reduce((acc: any[], report: any) => {
-    const key = `${report.customer?.id || 'unknown'}`
-    const existingGroup = acc.find((group) => group.key === key)
+  const groupedMonthReports = groupReportsByCustomer(monthReports)
 
-    if (existingGroup) {
-      existingGroup.reports.push(report)
-      existingGroup.totalHours += report.totalHours || 0
-      if (report.status === 'SUBMITTED' || report.status === 'APPROVED') {
-        existingGroup.submittedCount += 1
-      }
-    } else {
-      acc.push({
-        key,
-        customerName: report.customer?.name || 'Okänd kund',
-        reports: [report],
-        totalHours: report.totalHours || 0,
-        submittedCount: report.status === 'SUBMITTED' || report.status === 'APPROVED' ? 1 : 0,
-      })
-    }
-
-    return acc
-  }, [])
-
-  const fetchMonthReports = useCallback(async (monthKey: string) => {
+  const fetchMonthReports = useCallback(async (monthKey: string, forUserId?: string) => {
     try {
       const token = localStorage.getItem('token')
       if (!token) return
 
-      const response = await fetch(`/api/time-reports?month=${encodeURIComponent(monthKey)}`, {
+      const params = new URLSearchParams({ month: monthKey })
+      if (forUserId) params.set('forUserId', forUserId)
+
+      const response = await fetch(`/api/time-reports?${params.toString()}`, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -113,6 +106,29 @@ export default function TimeReportPage() {
       console.error('Fel vid hämtning av månadens tidrapporter:', error)
     }
   }, [])
+
+  useEffect(() => {
+    const raw = localStorage.getItem('user')
+    if (!raw) return
+    try {
+      const parsed = JSON.parse(raw) as { id: string; name: string; role: string }
+      setCurrentUser(parsed)
+      setReportForUserId(parsed.id)
+    } catch {
+      /* ignore */
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!isAdmin) return
+    const token = localStorage.getItem('token')
+    if (!token) return
+
+    fetch('/api/employees', { headers: { Authorization: `Bearer ${token}` } })
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data) => setCompanyEmployees(Array.isArray(data) ? data : []))
+      .catch(() => setCompanyEmployees([]))
+  }, [isAdmin])
 
   useEffect(() => {
     fetchCustomers()
@@ -131,8 +147,9 @@ export default function TimeReportPage() {
   }, [])
 
   useEffect(() => {
-    fetchMonthReports(selectedDate.slice(0, 7))
-  }, [selectedDate, fetchMonthReports])
+    if (!reportForUserId) return
+    fetchMonthReports(selectedDate.slice(0, 7), reportForUserId)
+  }, [selectedDate, reportForUserId, fetchMonthReports])
 
   useEffect(() => {
     if (!pendingProjectPrefill || customers.length === 0) return
@@ -172,52 +189,7 @@ export default function TimeReportPage() {
   const totalHours = entries.reduce((sum, e) => sum + (e.hours || 0), 0)
   const totalMachineHours = entries.reduce((sum, e) => sum + (e.machineHours && e.machineHours > 0 ? e.machineHours : 0), 0)
   const remainingHours = totalHours - totalMachineHours
-
-  const overtimeRowsForApi = useMemo(
-    () =>
-      hasOvertime
-        ? overtimeRows
-            .map((row) => ({
-              startTime: row.startTime.trim(),
-              endTime: row.endTime.trim(),
-              note: row.note.trim(),
-            }))
-            .filter((row) => row.startTime || row.endTime || row.note)
-        : [],
-    [hasOvertime, overtimeRows]
-  )
-
-  const totalOvertime = useMemo(() => {
-    if (!hasOvertime) return 0
-    return overtimeRows.reduce((sum, row) => {
-      if (!TIME_RE.test(row.startTime) || !TIME_RE.test(row.endTime)) return sum
-      const h = calculateOvertimeHours(row.startTime, row.endTime)
-      return sum + (Number.isNaN(h) ? 0 : h)
-    }, 0)
-  }, [hasOvertime, overtimeRows])
-
-  const addOvertimeRow = () =>
-    setOvertimeRows((prev) => [...prev, { startTime: '', endTime: '', note: '' }])
-
-  const removeOvertimeRow = (index: number) =>
-    setOvertimeRows((prev) => prev.filter((_, i) => i !== index))
-
-  const updateOvertimeRow = (index: number, field: keyof OvertimeRow, value: string) =>
-    setOvertimeRows((prev) => {
-      const next = [...prev]
-      next[index] = { ...next[index], [field]: value }
-      return next
-    })
-
-  const handleOvertimeToggle = (checked: boolean) => {
-    setHasOvertime(checked)
-    if (checked && overtimeRows.length === 0) {
-      setOvertimeRows([{ startTime: '', endTime: '', note: '' }])
-    }
-    if (!checked) {
-      setOvertimeRows([])
-    }
-  }
+  const overtimeHours = computeOvertimeHours(totalHours)
 
   const fetchCustomers = async () => {
     try {
@@ -327,23 +299,6 @@ export default function TimeReportPage() {
       return
     }
 
-    if (hasOvertime) {
-      const invalidRow = overtimeRowsForApi.find(
-        (row) =>
-          !TIME_RE.test(row.startTime) ||
-          !TIME_RE.test(row.endTime) ||
-          calculateOvertimeHours(row.startTime, row.endTime) <= 0
-      )
-      if (invalidRow) {
-        alert('Övertid: ange giltiga start- och sluttider (HH:mm) på varje rad.')
-        return
-      }
-      if (overtimeRowsForApi.length === 0) {
-        alert('Övertid är ikryssat men inga rader är ifyllda. Avmarkera rutan eller lägg till rader.')
-        return
-      }
-    }
-
     setLoading(true)
     try {
       const token = localStorage.getItem('token')
@@ -360,17 +315,13 @@ export default function TimeReportPage() {
           totalHours,
           missingHoursReason: remainingHours > 0 ? missingHoursReason : null,
           buyerReference: buyerReference.trim() || null,
+          ...(isAdmin && reportForUserId ? { forUserId: reportForUserId } : {}),
           entries: entries.map(e => ({
             hours: e.hours,
             description: e.description,
             machineHours: e.machineHours,
             machineType: e.machineType,
             registrationNumber: e.registrationNumber,
-          })),
-          overtimeEntries: overtimeRowsForApi.map((row) => ({
-            startTime: row.startTime,
-            endTime: row.endTime,
-            note: row.note || null,
           })),
         }),
       })
@@ -388,14 +339,20 @@ export default function TimeReportPage() {
         ])
         setMissingHoursReason('')
         setBuyerReference('')
-        setHasOvertime(false)
-        setOvertimeRows([])
-        await fetchMonthReports(savedMonthKey)
+        await fetchMonthReports(savedMonthKey, reportForUserId)
         setSelectedDate(new Date().toISOString().split('T')[0])
+        const subject = reportForUser()
+        const forLabel =
+          isAdmin && subject && subject.id !== currentUser?.id
+            ? ` för ${subject.name}`
+            : ''
         setSuccessFeedback({
           title: 'Tidrapport sparad',
-          message:
-            'Din tidrapport har sparats som utkast. Du kan redigera den under Mina rapporter tills du skickar in månadens tidrapporter.',
+          message: `Tidrapporten${forLabel} har sparats som utkast. ${
+            isAdmin && subject && subject.id !== currentUser?.id
+              ? 'Den syns under personalens rapporter och i admin-vyn.'
+              : 'Du kan redigera den under Mina rapporter tills du skickar in månadens tidrapporter.'
+          }`,
         })
       } else {
         const data = await response.json()
@@ -409,9 +366,11 @@ export default function TimeReportPage() {
     }
   }
 
-  const submitCurrentMonthReports = async () => {
+  const submitMonthReports = async (customerId?: string) => {
     try {
       setSubmittingMonth(true)
+      if (customerId) setSubmittingCustomerId(customerId)
+
       const token = localStorage.getItem('token')
       if (!token) {
         router.push('/login')
@@ -423,9 +382,13 @@ export default function TimeReportPage() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
+          Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ month: monthKey }),
+        body: JSON.stringify({
+          month: monthKey,
+          ...(customerId ? { customerId } : {}),
+          ...(isAdmin && reportForUserId ? { forUserId: reportForUserId } : {}),
+        }),
       })
 
       const data = await response.json()
@@ -437,13 +400,14 @@ export default function TimeReportPage() {
         title: 'Tidrapporter inskickade',
         message:
           data.message ||
-          'Månadens tidrapporter har skickats till administratören för granskning.',
+          'Tidrapporterna har skickats till administratören för granskning.',
       })
-      fetchMonthReports(monthKey)
-    } catch (error: any) {
-      alert(error.message || 'Ett fel uppstod')
+      fetchMonthReports(monthKey, reportForUserId)
+    } catch (error: unknown) {
+      alert(error instanceof Error ? error.message : 'Ett fel uppstod')
     } finally {
       setSubmittingMonth(false)
+      setSubmittingCustomerId(null)
     }
   }
 
@@ -455,6 +419,30 @@ export default function TimeReportPage() {
         </h1>
 
         <form onSubmit={handleSubmit}>
+          {isAdmin && currentUser && (
+            <div className="mb-6 p-4 rounded-md border border-green-200 bg-green-50">
+              <label htmlFor="reportForUser" className="block text-sm font-medium mb-2 text-gray-900">
+                Tidrapport för
+              </label>
+              <select
+                id="reportForUser"
+                value={reportForUserId}
+                onChange={(e) => setReportForUserId(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-md bg-white"
+              >
+                <option value={currentUser.id}>Mig själv ({currentUser.name})</option>
+                {companyEmployees.map((emp) => (
+                  <option key={emp.id} value={emp.id}>
+                    {emp.name}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-2 text-xs text-gray-600">
+                Välj om rapporten gäller dig eller en anställd. Utkast och inlämning gäller den valda personen.
+              </p>
+            </div>
+          )}
+
           <div className="mb-6">
             <label className="block text-sm font-medium mb-2">Kund:</label>
             <select
@@ -523,24 +511,19 @@ export default function TimeReportPage() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 mb-2">
                   <div>
                     <label className="block text-sm font-medium mb-1">Timmar:</label>
-                    <input
-                      type="number"
-                      step="0.5"
-                      min="0"
+                    <HoursInput
                       value={entry.hours}
-                      onChange={(e) => updateEntry(index, 'hours', parseFloat(e.target.value) || 0)}
+                      onChange={(hours) => updateEntry(index, 'hours', hours ?? 0)}
                       className="w-full px-3 py-2 border border-gray-300 rounded-md"
                       required
                     />
                   </div>
                   <div>
                     <label className="block text-sm font-medium mb-1">Fordonstimmar (valfritt):</label>
-                    <input
-                      type="number"
-                      step="0.5"
-                      min="0"
-                      value={entry.machineHours || ''}
-                      onChange={(e) => updateEntry(index, 'machineHours', e.target.value ? parseFloat(e.target.value) : null)}
+                    <HoursInput
+                      optional
+                      value={entry.machineHours}
+                      onChange={(machineHours) => updateEntry(index, 'machineHours', machineHours)}
                       className="w-full px-3 py-2 border border-gray-300 rounded-md"
                     />
                   </div>
@@ -617,6 +600,7 @@ export default function TimeReportPage() {
             <p className="text-sm text-gray-700">
               Totalt fordonstid: {totalMachineHours.toFixed(1)} timmar
             </p>
+            <OvertimeSummary overtimeHours={overtimeHours} />
             {remainingHours > 0 && (
               <p className="text-sm text-orange-700 mt-1">
                 Resterande tid utan fordon: {remainingHours.toFixed(1)} timmar
@@ -640,103 +624,6 @@ export default function TimeReportPage() {
             </div>
           )}
 
-          <div className="mb-6 border border-gray-200 rounded-md p-3 sm:p-4 bg-gray-50">
-            <label className="flex items-center gap-2 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                className="h-4 w-4 accent-green-800"
-                checked={hasOvertime}
-                onChange={(e) => handleOvertimeToggle(e.target.checked)}
-              />
-              <span className="text-sm font-semibold text-gray-800">
-                Jag har jobbat övertid den här dagen
-              </span>
-            </label>
-            {hasOvertime && (
-              <div className="mt-4 space-y-3">
-                <p className="text-xs text-gray-600">
-                  Lägg till tidsintervall för övertiden. Använd 24-timmarsformat (HH:mm). Om sluttiden
-                  är mindre än starttiden tolkas det som att du arbetat in i nästa dygn.
-                </p>
-                {overtimeRows.map((row, index) => {
-                  const validInterval =
-                    TIME_RE.test(row.startTime) && TIME_RE.test(row.endTime)
-                  const calculated = validInterval
-                    ? calculateOvertimeHours(row.startTime, row.endTime)
-                    : Number.NaN
-                  return (
-                    <div
-                      key={index}
-                      className="grid grid-cols-1 md:grid-cols-[1fr_1fr_2fr_auto] gap-2 items-end p-3 border border-gray-200 rounded-md bg-white"
-                    >
-                      <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">Från</label>
-                        <TimeOfDayInput
-                          value={row.startTime}
-                          onChange={(v) => updateOvertimeRow(index, 'startTime', v)}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                          ariaLabel="Övertid från (HH:mm)"
-                          required
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">Till</label>
-                        <TimeOfDayInput
-                          value={row.endTime}
-                          onChange={(v) => updateOvertimeRow(index, 'endTime', v)}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                          ariaLabel="Övertid till (HH:mm)"
-                          required
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">
-                          Anteckning <span className="font-normal text-gray-500">(valfritt)</span>
-                        </label>
-                        <input
-                          type="text"
-                          value={row.note}
-                          onChange={(e) => updateOvertimeRow(index, 'note', e.target.value)}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                          placeholder="T.ex. akutarbete, beredskap…"
-                          maxLength={200}
-                        />
-                      </div>
-                      <div className="flex md:flex-col md:items-end justify-between gap-1">
-                        <span className="text-sm font-semibold text-green-900 tabular-nums">
-                          {validInterval && !Number.isNaN(calculated)
-                            ? `${calculated.toFixed(1)} h`
-                            : '— h'}
-                        </span>
-                        {overtimeRows.length > 1 && (
-                          <button
-                            type="button"
-                            onClick={() => removeOvertimeRow(index)}
-                            className="text-xs text-red-600 hover:text-red-800 underline"
-                          >
-                            Ta bort
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  )
-                })}
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <button
-                    type="button"
-                    onClick={addOvertimeRow}
-                    className="px-3 py-1.5 text-sm rounded-md bg-gray-200 text-gray-800 hover:bg-gray-300"
-                  >
-                    + Lägg till övertidsrad
-                  </button>
-                  <span className="text-sm font-semibold text-green-900">
-                    Totalt övertid: {totalOvertime.toFixed(1)} timmar
-                  </span>
-                </div>
-              </div>
-            )}
-          </div>
-
           <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 mb-8">
             <button
               type="submit"
@@ -757,102 +644,59 @@ export default function TimeReportPage() {
           <div className="border-t border-gray-200 pt-6">
             <h2 className="text-lg sm:text-xl font-semibold mb-2" style={{ color: '#2D5016' }}>
               Tidrapporter för månaden {formatMonthYearSv(currentMonth)}
+              {isAdmin && reportForUser() && reportForUser()!.id !== currentUser?.id
+                ? ` · ${reportForUser()!.name}`
+                : ''}
             </h2>
             <p className="text-sm text-gray-600 mb-4">
-              Utkast kan du öppna och ändra nedan fram tills du klickar &quot;Skicka in tidrapporter&quot; för månaden.
+              Tidrapporterna är sorterade per kund. Skicka en kundmapp i taget, eller alla utkast på en gång.
+              {isAdmin && reportForUser() && reportForUser()!.id !== currentUser?.id
+                ? ' Inlämning gäller den valda personens utkast.'
+                : ''}
             </p>
-            {monthReports.length === 0 ? (
-              <p className="text-gray-500 mb-4">Inga tidrapporter skapade för denna månad ännu.</p>
-            ) : (
-              <div className="space-y-4 mb-4">
-                {groupedMonthReports.map((group: any) => (
-                  <div key={group.key} className="border border-gray-200 rounded-md">
-                    <div className="px-4 py-3 bg-gray-50 flex flex-col md:flex-row md:items-center md:justify-between gap-2">
-                      <p className="text-sm font-semibold">{group.customerName}</p>
-                      <p className="text-xs text-gray-600">
-                        {group.reports.length} rapport{group.reports.length > 1 ? 'er' : ''} | Totalt {group.totalHours.toFixed(1)} h |{' '}
-                        {group.submittedCount === group.reports.length ? 'Inskickat' : 'Ej inskickat'}
-                      </p>
-                    </div>
-                    <div className="overflow-x-auto">
-                      <table className="min-w-full divide-y divide-gray-200">
-                        <thead className="bg-white">
-                          <tr>
-                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Datum</th>
-                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Timmar</th>
-                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
-                              Åtgärd
-                            </th>
-                          </tr>
-                        </thead>
-                        <tbody className="bg-white divide-y divide-gray-200">
-                          {group.reports.map((report: any) => (
-                            <tr key={report.id}>
-                              <td className="px-4 py-2 text-sm">{new Date(report.date).toLocaleDateString('sv-SE')}</td>
-                              <td className="px-4 py-2 text-sm">{report.totalHours?.toFixed(1)} h</td>
-                              <td className="px-4 py-2 text-sm">{getSubmitStatusLabel(report.status)}</td>
-                              <td className="px-4 py-2 text-sm">
-                                {report.status === 'DRAFT' ? (
-                                  <Link
-                                    href={`/time-report/${report.id}`}
-                                    className="font-medium text-green-800 underline underline-offset-2 hover:text-green-950"
-                                  >
-                                    Redigera
-                                  </Link>
-                                ) : report.status === 'SUBMITTED' ? (
-                                  <Link
-                                    href={`/time-report/${report.id}`}
-                                    className="text-amber-800 underline underline-offset-2 hover:text-amber-950 text-sm"
-                                  >
-                                    Ändra innan godkännande
-                                  </Link>
-                                ) : report.status === 'APPROVED' ? (
-                                  <Link
-                                    href={`/time-report/${report.id}`}
-                                    className="text-gray-600 underline underline-offset-2 hover:text-gray-900 text-sm"
-                                  >
-                                    Visa
-                                  </Link>
-                                ) : (
-                                  <Link
-                                    href={`/time-report/${report.id}`}
-                                    className="text-green-700 underline text-sm"
-                                  >
-                                    Öppna
-                                  </Link>
-                                )}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-            <button
-              type="button"
-              disabled={submittingMonth || draftCountThisMonth === 0}
-              onClick={() => setSubmitConfirmOpen(true)}
-              className="w-full sm:w-auto px-6 py-3 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50"
-            >
-              {submittingMonth ? 'Skickar in...' : 'Skicka in tidrapporter'}
-            </button>
+            <MonthCustomerReportFolders
+              groups={groupedMonthReports}
+              totalDraftCount={draftCountThisMonth}
+              submitting={submittingMonth}
+              submittingCustomerId={submittingCustomerId}
+              onSubmitAll={() =>
+                setSubmitConfirm({ scope: 'all', count: draftCountThisMonth })
+              }
+              onSubmitCustomer={(customerId, customerName) => {
+                const count =
+                  groupedMonthReports.find((g) => g.customerId === customerId)?.draftCount ?? 0
+                setSubmitConfirm({ scope: 'customer', customerId, customerName, count })
+              }}
+            />
           </div>
         </form>
       </div>
 
       <ConfirmDialog
-        open={submitConfirmOpen}
-        title="Skicka in tidrapporter?"
-        message={`Du håller på att skicka in alla utkast för ${formatMonthYearSv(currentMonth)} till administratören (${draftCountThisMonth} ${draftCountThisMonth === 1 ? 'rapport' : 'rapporter'}). Är du säker på att du vill fortsätta?`}
+        open={submitConfirm !== null}
+        title={
+          submitConfirm?.scope === 'customer'
+            ? `Skicka ${submitConfirm.customerName}?`
+            : 'Skicka alla tidrapporter?'
+        }
+        message={
+          submitConfirm
+            ? submitConfirm.scope === 'customer'
+              ? `Du skickar in ${submitConfirm.count} utkast för ${submitConfirm.customerName} (${formatMonthYearSv(currentMonth)}) till administratören. Fortsätta?`
+              : `Du skickar in alla ${submitConfirm.count} utkast för ${formatMonthYearSv(currentMonth)} till administratören. Fortsätta?`
+            : ''
+        }
         confirmLabel="Ja, skicka in"
-        onCancel={() => setSubmitConfirmOpen(false)}
+        onCancel={() => setSubmitConfirm(null)}
         onConfirm={() => {
-          setSubmitConfirmOpen(false)
-          void submitCurrentMonthReports()
+          if (!submitConfirm) return
+          const pending = submitConfirm
+          setSubmitConfirm(null)
+          if (pending.scope === 'customer') {
+            void submitMonthReports(pending.customerId)
+          } else {
+            void submitMonthReports()
+          }
         }}
       />
 

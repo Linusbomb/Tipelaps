@@ -317,7 +317,7 @@ export default function StatisticsPage() {
             <>
               <div className="bg-white shadow rounded-lg p-6">
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
-              <h2 className="text-xl font-semibold">Fakturerat per kund och månad</h2>
+              <h2 className="text-xl font-semibold">Timmar per kund och månad</h2>
               <select
                 value={selectedMonth}
                 onChange={(e) => setSelectedMonth(Number(e.target.value))}

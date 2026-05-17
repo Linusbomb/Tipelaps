@@ -1,14 +1,11 @@
 'use client'
 
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import SuccessDialog from '@/app/components/SuccessDialog'
-import TimeOfDayInput from '@/app/components/TimeOfDayInput'
-import { calculateOvertimeHours } from '@/lib/overtime'
-
-type OvertimeRow = { startTime: string; endTime: string; note: string }
-
-const TIME_RE = /^([01]\d|2[0-3]):([0-5]\d)$/
+import ConfirmDialog from '@/app/components/ConfirmDialog'
+import OvertimeSummary from '@/app/components/OvertimeSummary'
+import { computeOvertimeHours, resolveOvertimeHours } from '@/lib/overtime'
 
 const MACHINE_OPTIONS = [
   'Hjullastare',
@@ -56,61 +53,19 @@ export default function TimeReportDetailPage() {
   const [missingHoursReason, setMissingHoursReason] = useState('')
   const [buyerReference, setBuyerReference] = useState('')
   const [saveSuccessOpen, setSaveSuccessOpen] = useState(false)
-  const [hasOvertime, setHasOvertime] = useState(false)
-  const [overtimeRows, setOvertimeRows] = useState<OvertimeRow[]>([])
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
+  const [storedOvertimeHours, setStoredOvertimeHours] = useState<number | null>(null)
   const totalHours = entries.reduce((sum, e) => sum + (e.hours || 0), 0)
   const totalMachineHours = entries.reduce(
     (sum, e) => sum + (e.machineHours && e.machineHours > 0 ? e.machineHours : 0),
     0
   )
   const remainingHours = totalHours - totalMachineHours
-
-  const overtimeRowsForApi = useMemo(
-    () =>
-      hasOvertime
-        ? overtimeRows
-            .map((row) => ({
-              startTime: row.startTime.trim(),
-              endTime: row.endTime.trim(),
-              note: row.note.trim(),
-            }))
-            .filter((row) => row.startTime || row.endTime || row.note)
-        : [],
-    [hasOvertime, overtimeRows]
-  )
-
-  const totalOvertime = useMemo(() => {
-    if (!hasOvertime) return 0
-    return overtimeRows.reduce((sum, row) => {
-      if (!TIME_RE.test(row.startTime) || !TIME_RE.test(row.endTime)) return sum
-      const h = calculateOvertimeHours(row.startTime, row.endTime)
-      return sum + (Number.isNaN(h) ? 0 : h)
-    }, 0)
-  }, [hasOvertime, overtimeRows])
-
-  const addOvertimeRow = () =>
-    setOvertimeRows((prev) => [...prev, { startTime: '', endTime: '', note: '' }])
-
-  const removeOvertimeRow = (index: number) =>
-    setOvertimeRows((prev) => prev.filter((_, i) => i !== index))
-
-  const updateOvertimeRow = (index: number, field: keyof OvertimeRow, value: string) =>
-    setOvertimeRows((prev) => {
-      const next = [...prev]
-      next[index] = { ...next[index], [field]: value }
-      return next
-    })
-
-  const handleOvertimeToggle = (checked: boolean) => {
-    setHasOvertime(checked)
-    if (checked && overtimeRows.length === 0) {
-      setOvertimeRows([{ startTime: '', endTime: '', note: '' }])
-    }
-    if (!checked) {
-      setOvertimeRows([])
-    }
-  }
+  const overtimeHours = editable
+    ? computeOvertimeHours(totalHours)
+    : resolveOvertimeHours(storedOvertimeHours, totalHours)
 
   const loadReport = useCallback(async () => {
     try {
@@ -149,6 +104,9 @@ export default function TimeReportDetailPage() {
       const reportDay = new Date(data.date)
       setSelectedDate(reportDay.toISOString().split('T')[0])
       setMissingHoursReason(data.missingHoursReason || '')
+      setStoredOvertimeHours(
+        typeof data.overtimeHours === 'number' ? data.overtimeHours : null
+      )
 
       const mapped: EntryRow[] = (data.entries || []).map((en: any) => {
         let machineType = ''
@@ -183,17 +141,6 @@ export default function TimeReportDetailPage() {
       }
 
       setEntries(mapped)
-      setBuyerReference(typeof data.buyerReference === 'string' ? data.buyerReference : '')
-
-      const overtimeFromApi: OvertimeRow[] = Array.isArray(data.overtimeEntries)
-        ? data.overtimeEntries.map((row: any) => ({
-            startTime: typeof row.startTime === 'string' ? row.startTime : '',
-            endTime: typeof row.endTime === 'string' ? row.endTime : '',
-            note: typeof row.note === 'string' ? row.note : '',
-          }))
-        : []
-      setOvertimeRows(overtimeFromApi)
-      setHasOvertime(overtimeFromApi.length > 0)
 
       if (customersRes.ok) {
         setCustomers(await customersRes.json())
@@ -226,6 +173,33 @@ export default function TimeReportDetailPage() {
     setEntries(updated)
   }
 
+  const handleDelete = async () => {
+    try {
+      setDeleting(true)
+      const token = localStorage.getItem('token')
+      if (!token) {
+        router.push('/login')
+        return
+      }
+
+      const response = await fetch(`/api/time-reports/${reportId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        throw new Error(data.error || 'Kunde inte ta bort tidrapporten')
+      }
+
+      router.push('/my-reports')
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : 'Kunde inte ta bort tidrapporten')
+    } finally {
+      setDeleting(false)
+      setDeleteConfirmOpen(false)
+    }
+  }
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!selectedCustomer) {
@@ -255,23 +229,6 @@ export default function TimeReportDetailPage() {
       return
     }
 
-    if (hasOvertime) {
-      const invalidRow = overtimeRowsForApi.find(
-        (row) =>
-          !TIME_RE.test(row.startTime) ||
-          !TIME_RE.test(row.endTime) ||
-          calculateOvertimeHours(row.startTime, row.endTime) <= 0
-      )
-      if (invalidRow) {
-        alert('Övertid: ange giltiga start- och sluttider (HH:mm) på varje rad.')
-        return
-      }
-      if (overtimeRowsForApi.length === 0) {
-        alert('Övertid är ikryssat men inga rader är ifyllda. Avmarkera rutan eller lägg till rader.')
-        return
-      }
-    }
-
     try {
       setSaving(true)
       const token = localStorage.getItem('token')
@@ -298,11 +255,6 @@ export default function TimeReportDetailPage() {
           })),
           missingHoursReason: remainingHours > 0 ? missingHoursReason : null,
           buyerReference: buyerReference.trim() || null,
-          overtimeEntries: overtimeRowsForApi.map((row) => ({
-            startTime: row.startTime,
-            endTime: row.endTime,
-            note: row.note || null,
-          })),
         }),
       })
 
@@ -379,13 +331,9 @@ export default function TimeReportDetailPage() {
 
         {!editable && (
           <p className="text-sm text-gray-600 mb-6 p-4 bg-gray-50 rounded-md border border-gray-200">
-            Denna rapport är godkänd och är skrivskyddad. Kontakta din chef om något behöver rättas.
-          </p>
-        )}
-
-        {editable && reportStatus === 'SUBMITTED' && (
-          <p className="text-sm text-amber-800 mb-6 p-3 bg-amber-50 rounded-md border border-amber-100">
-            Rapporten är redan inskickad. Du kan fortfarande uppdatera innehållet innan den har godkänts av chefen.
+            {reportStatus === 'SUBMITTED'
+              ? 'Denna rapport är inskickad till administratören och kan inte ändras eller tas bort.'
+              : 'Denna rapport är godkänd och är skrivskyddad. Kontakta din chef om något behöver rättas.'}
           </p>
         )}
 
@@ -531,6 +479,7 @@ export default function TimeReportDetailPage() {
             <div className="mb-6">
               <p className="text-lg font-semibold">Totalt arbetstid: {totalHours.toFixed(1)} timmar</p>
               <p className="text-sm text-gray-700">Totalt fordonstid: {totalMachineHours.toFixed(1)} timmar</p>
+              <OvertimeSummary overtimeHours={overtimeHours} />
               {remainingHours > 0 && (
                 <p className="text-sm text-orange-700 mt-1">
                   Resterande tid utan fordon: {remainingHours.toFixed(1)} timmar
@@ -551,102 +500,6 @@ export default function TimeReportDetailPage() {
               </div>
             )}
 
-            <div className="mb-6 border border-gray-200 rounded-md p-3 sm:p-4 bg-gray-50">
-              <label className="flex items-center gap-2 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 accent-green-800"
-                  checked={hasOvertime}
-                  onChange={(e) => handleOvertimeToggle(e.target.checked)}
-                />
-                <span className="text-sm font-semibold text-gray-800">
-                  Jag har jobbat övertid den här dagen
-                </span>
-              </label>
-              {hasOvertime && (
-                <div className="mt-4 space-y-3">
-                  <p className="text-xs text-gray-600">
-                    Lägg till tidsintervall för övertiden (HH:mm). Om sluttiden är mindre än
-                    starttiden tolkas det som arbete in i nästa dygn.
-                  </p>
-                  {overtimeRows.map((row, index) => {
-                    const validInterval =
-                      TIME_RE.test(row.startTime) && TIME_RE.test(row.endTime)
-                    const calculated = validInterval
-                      ? calculateOvertimeHours(row.startTime, row.endTime)
-                      : Number.NaN
-                    return (
-                      <div
-                        key={index}
-                        className="grid grid-cols-1 md:grid-cols-[1fr_1fr_2fr_auto] gap-2 items-end p-3 border border-gray-200 rounded-md bg-white"
-                      >
-                        <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">Från</label>
-                          <TimeOfDayInput
-                            value={row.startTime}
-                            onChange={(v) => updateOvertimeRow(index, 'startTime', v)}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                            ariaLabel="Övertid från (HH:mm)"
-                            required
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">Till</label>
-                          <TimeOfDayInput
-                            value={row.endTime}
-                            onChange={(v) => updateOvertimeRow(index, 'endTime', v)}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                            ariaLabel="Övertid till (HH:mm)"
-                            required
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">
-                            Anteckning <span className="font-normal text-gray-500">(valfritt)</span>
-                          </label>
-                          <input
-                            type="text"
-                            value={row.note}
-                            onChange={(e) => updateOvertimeRow(index, 'note', e.target.value)}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                            maxLength={200}
-                          />
-                        </div>
-                        <div className="flex md:flex-col md:items-end justify-between gap-1">
-                          <span className="text-sm font-semibold text-green-900 tabular-nums">
-                            {validInterval && !Number.isNaN(calculated)
-                              ? `${calculated.toFixed(1)} h`
-                              : '— h'}
-                          </span>
-                          {overtimeRows.length > 1 && (
-                            <button
-                              type="button"
-                              onClick={() => removeOvertimeRow(index)}
-                              className="text-xs text-red-600 hover:text-red-800 underline"
-                            >
-                              Ta bort
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    )
-                  })}
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <button
-                      type="button"
-                      onClick={addOvertimeRow}
-                      className="px-3 py-1.5 text-sm rounded-md bg-gray-200 text-gray-800 hover:bg-gray-300"
-                    >
-                      + Lägg till övertidsrad
-                    </button>
-                    <span className="text-sm font-semibold text-green-900">
-                      Totalt övertid: {totalOvertime.toFixed(1)} timmar
-                    </span>
-                  </div>
-                </div>
-              )}
-            </div>
-
             <div className="flex flex-wrap gap-4">
               <button
                 type="submit"
@@ -663,6 +516,16 @@ export default function TimeReportDetailPage() {
               >
                 Tillbaka
               </button>
+              {reportStatus === 'DRAFT' && (
+                <button
+                  type="button"
+                  onClick={() => setDeleteConfirmOpen(true)}
+                  disabled={deleting}
+                  className="px-6 py-3 text-red-700 border border-red-300 rounded-md hover:bg-red-50 disabled:opacity-50"
+                >
+                  Ta bort tidrapport
+                </button>
+              )}
             </div>
           </form>
         ) : (
@@ -683,6 +546,11 @@ export default function TimeReportDetailPage() {
                 <p className="font-medium">{buyerReference}</p>
               </div>
             )}
+            <div className="mb-4">
+              <p className="text-sm text-gray-500">Totalt arbetstid</p>
+              <p className="font-medium">{totalHours.toFixed(1)} timmar</p>
+              <OvertimeSummary overtimeHours={overtimeHours} />
+            </div>
             {missingHoursReason?.trim() && (
               <div className="p-3 bg-gray-50 rounded-md border border-gray-100">
                 <p className="text-sm text-gray-500">Motivering vid skillnad arbete–fordon</p>
@@ -704,27 +572,6 @@ export default function TimeReportDetailPage() {
                 <p className="text-gray-900 mt-1">{entry.description}</p>
               </div>
             ))}
-            {overtimeRows.length > 0 && (
-              <div className="border border-amber-200 bg-amber-50/40 rounded-md p-4">
-                <p className="text-sm font-semibold text-amber-900 mb-2">
-                  Övertid · totalt {totalOvertime.toFixed(1)} h
-                </p>
-                <ul className="space-y-1 text-sm text-gray-800">
-                  {overtimeRows.map((row, idx) => {
-                    const calc =
-                      TIME_RE.test(row.startTime) && TIME_RE.test(row.endTime)
-                        ? calculateOvertimeHours(row.startTime, row.endTime)
-                        : Number.NaN
-                    return (
-                      <li key={idx}>
-                        {row.startTime}–{row.endTime} · {Number.isNaN(calc) ? '—' : calc.toFixed(1)} h
-                        {row.note ? ` · ${row.note}` : ''}
-                      </li>
-                    )
-                  })}
-                </ul>
-              </div>
-            )}
             <button
               type="button"
               onClick={() => router.push('/my-reports')}
@@ -735,6 +582,17 @@ export default function TimeReportDetailPage() {
           </div>
         )}
       </div>
+
+      <ConfirmDialog
+        open={deleteConfirmOpen}
+        title="Ta bort tidrapport?"
+        message="Vill du ta bort denna tidrapport permanent? Detta går inte att ångra."
+        confirmLabel="Ja, ta bort"
+        onCancel={() => {
+          if (!deleting) setDeleteConfirmOpen(false)
+        }}
+        onConfirm={() => void handleDelete()}
+      />
 
       <SuccessDialog
         open={saveSuccessOpen}

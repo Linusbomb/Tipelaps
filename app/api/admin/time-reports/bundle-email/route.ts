@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getAdminApiUser, adminEffectiveCompanyId } from '@/lib/apiAdmin'
-import { buildTimeReportsXlsxBuffer, XLSX_MIME } from '@/lib/reportBundleExcel'
+import { buildTimeReportsZipBuffer } from '@/lib/reportBundleZip'
 import { sendTimeReportBundleEmail } from '@/lib/email'
 
 export const dynamic = 'force-dynamic'
@@ -58,8 +58,8 @@ export async function POST(request: NextRequest) {
         user: { companyId },
       },
       include: {
-        user: { select: { id: true, name: true } },
-        customer: { select: { id: true, name: true } },
+        user: { select: { name: true } },
+        customer: { select: { name: true } },
         entries: { orderBy: { createdAt: 'asc' } },
       },
     })
@@ -83,7 +83,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const { buffer, suggestedFilename } = await buildTimeReportsXlsxBuffer(reports as any)
+    const { buffer, suggestedFilename } = await buildTimeReportsZipBuffer(reports)
 
     const companyName =
       user.ownedCompany?.name ?? user.company?.name ?? 'TimeLaps'
@@ -97,9 +97,8 @@ export async function POST(request: NextRequest) {
       personalMessageHtml: message
         ? message.replace(/\n/g, '<br/>')
         : '',
-      attachmentBuffer: buffer,
-      attachmentFileName: suggestedFilename,
-      attachmentMime: XLSX_MIME,
+      zipBuffer: buffer,
+      zipFileName: suggestedFilename,
       senderDisplayName: user.name,
     })
 
