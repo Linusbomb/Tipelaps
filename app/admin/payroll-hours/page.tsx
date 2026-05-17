@@ -9,6 +9,8 @@ interface Row {
   email: string
   inskickadeTimmar: number
   godkandaTimmar: number
+  inskickadeOvertid: number
+  godkandOvertid: number
   rapportCountInskickad: number
   rapportCountGodkand: number
 }
@@ -16,7 +18,12 @@ interface Row {
 interface Summary {
   month: string
   employees: Row[]
-  totals: { inskickadeTimmar: number; godkandaTimmar: number }
+  totals: {
+    inskickadeTimmar: number
+    godkandaTimmar: number
+    inskickadeOvertid: number
+    godkandOvertid: number
+  }
 }
 
 function monthLabelSv(ym: string): string {
@@ -137,13 +144,19 @@ export default function PayrollHoursPage() {
 
   const copyTable = async () => {
     if (!summary) return
-    const header =
-      ['Namn', 'E-post', 'Inskickade timmar', 'Godkända timmar', 'Antal rapporter (insk.)', 'Antal godkända'].join(
-        '\t'
-      )
+    const header = [
+      'Namn',
+      'E-post',
+      'Inskickade timmar',
+      'Godkända timmar',
+      'Inskickad övertid',
+      'Godkänd övertid',
+      'Antal rapporter (insk.)',
+      'Antal godkända',
+    ].join('\t')
     const lines = summary.employees.map(
       (e) =>
-        `${e.name}\t${e.email}\t${e.inskickadeTimmar}\t${e.godkandaTimmar}\t${e.rapportCountInskickad}\t${e.rapportCountGodkand}`
+        `${e.name}\t${e.email}\t${e.inskickadeTimmar}\t${e.godkandaTimmar}\t${e.inskickadeOvertid}\t${e.godkandOvertid}\t${e.rapportCountInskickad}\t${e.rapportCountGodkand}`
     )
     const text = `${header}\n${lines.join('\n')}`
     try {
@@ -286,6 +299,12 @@ export default function PayrollHoursPage() {
                     Timmar godkända
                   </th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wide">
+                    Övertid inskickad*
+                  </th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wide">
+                    Övertid godkänd
+                  </th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wide">
                     Rapporter
                   </th>
                 </tr>
@@ -300,6 +319,15 @@ export default function PayrollHoursPage() {
                     </td>
                     <td className="px-4 py-3 text-sm font-semibold text-right tabular-nums" style={{ color: '#2D5016' }}>
                       {e.godkandaTimmar.toFixed(1)}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-900 text-right tabular-nums">
+                      {e.inskickadeOvertid.toFixed(1)}
+                    </td>
+                    <td
+                      className="px-4 py-3 text-sm font-semibold text-right tabular-nums"
+                      style={{ color: '#8B5A00' }}
+                    >
+                      {e.godkandOvertid.toFixed(1)}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-600 text-right">
                       {e.rapportCountGodkand}/{e.rapportCountInskickad}
@@ -317,6 +345,15 @@ export default function PayrollHoursPage() {
                   </td>
                   <td className="px-4 py-3 text-sm font-semibold text-right tabular-nums" style={{ color: '#2D5016' }}>
                     {summary.totals.godkandaTimmar.toFixed(1)}
+                  </td>
+                  <td className="px-4 py-3 text-sm font-semibold text-right tabular-nums">
+                    {summary.totals.inskickadeOvertid.toFixed(1)}
+                  </td>
+                  <td
+                    className="px-4 py-3 text-sm font-semibold text-right tabular-nums"
+                    style={{ color: '#8B5A00' }}
+                  >
+                    {summary.totals.godkandOvertid.toFixed(1)}
                   </td>
                   <td className="px-4 py-3 text-sm text-gray-500 text-right">
                     {/* leave blank */}

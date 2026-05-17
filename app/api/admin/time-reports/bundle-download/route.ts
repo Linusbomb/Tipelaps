@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getAdminApiUser, adminEffectiveCompanyId } from '@/lib/apiAdmin'
-import { buildTimeReportsZipBuffer } from '@/lib/reportBundleZip'
+import { buildTimeReportsXlsxBuffer, XLSX_MIME } from '@/lib/reportBundleExcel'
 
 export const dynamic = 'force-dynamic'
 
@@ -43,8 +43,8 @@ export async function POST(request: NextRequest) {
         user: { companyId },
       },
       include: {
-        user: { select: { name: true } },
-        customer: { select: { name: true } },
+        user: { select: { id: true, name: true } },
+        customer: { select: { id: true, name: true } },
         entries: { orderBy: { createdAt: 'asc' } },
       },
     })
@@ -56,16 +56,16 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const { buffer, suggestedFilename } = await buildTimeReportsZipBuffer(reports)
+    const { buffer, suggestedFilename } = await buildTimeReportsXlsxBuffer(reports as any)
 
     return new NextResponse(new Uint8Array(buffer), {
       headers: {
-        'Content-Type': 'application/zip',
+        'Content-Type': XLSX_MIME,
         'Content-Disposition': `attachment; filename="${suggestedFilename}"`,
       },
     })
   } catch (error: any) {
     console.error('[bundle-download]', error)
-    return NextResponse.json({ error: 'Kunde inte skapa arkivfil' }, { status: 500 })
+    return NextResponse.json({ error: 'Kunde inte skapa Excel-fil' }, { status: 500 })
   }
 }

@@ -165,8 +165,9 @@ export async function sendTimeReportBundleEmail(options: {
   companyName: string
   reportCount: number
   personalMessageHtml: string
-  zipBuffer: Buffer
-  zipFileName: string
+  attachmentBuffer: Buffer
+  attachmentFileName: string
+  attachmentMime?: string
   senderDisplayName: string
 }): Promise<boolean> {
   try {
@@ -207,7 +208,13 @@ export async function sendTimeReportBundleEmail(options: {
     if (options.personalMessageHtml.trim()) {
       textParts.push('', stripBasicHtml(options.personalMessageHtml))
     }
-    textParts.push('', 'Med vänliga hälsningar', `- ${options.senderDisplayName}`, '', '(ZIP-filen finns som bilaga)')
+    textParts.push(
+      '',
+      'Med vänliga hälsningar',
+      `- ${options.senderDisplayName}`,
+      '',
+      `(Underlaget bifogas som ${options.attachmentFileName})`
+    )
     const textBody = textParts.join('\n')
 
     await transporter.sendMail({
@@ -218,9 +225,9 @@ export async function sendTimeReportBundleEmail(options: {
       text: textBody,
       attachments: [
         {
-          filename: options.zipFileName,
-          content: options.zipBuffer,
-          contentType: 'application/zip',
+          filename: options.attachmentFileName,
+          content: options.attachmentBuffer,
+          contentType: options.attachmentMime || 'application/octet-stream',
         },
       ],
     })

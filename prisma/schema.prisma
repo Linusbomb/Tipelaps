@@ -73,6 +73,7 @@ model TimeReport {
   year      Int      // År för tidrapporten
   totalHours Float
   customerTotalHours Float // Fakturerbar tid mot denna kund (= total arbetad tid på rapporten, oberoende av fordonstimmar)
+  overtimeHours Float @default(0) // Sammanlagd registrerad övertid på rapporten (cache för snabba löneuppställningar)
   missingHoursReason String? // Redovisning av vad som fattas om inte 8 timmar
   buyerReference String? // Valfri beställarreferens (t.ex. kundens order-/arbetsnummer)
   status    String   @default("DRAFT") // DRAFT = i buffert, SUBMITTED = skickad in, APPROVED = godkänd/skickad till kund
@@ -83,6 +84,22 @@ model TimeReport {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   entries   TimeReportEntry[]
+  overtimeEntries OvertimeEntry[]
+}
+
+/// Registrerad övertid kopplad till en tidrapport (intervall HH:mm–HH:mm + beräknat antal timmar).
+model OvertimeEntry {
+  id           String   @id @default(cuid())
+  timeReportId String
+  timeReport   TimeReport @relation(fields: [timeReportId], references: [id], onDelete: Cascade)
+  startTime    String   // "HH:mm"
+  endTime      String   // "HH:mm"
+  hours        Float    // Beräknad längd (slut-tid kan ligga efter midnatt – då räknas det som +24h)
+  note         String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([timeReportId])
 }
 
 model TimeReportEntry {

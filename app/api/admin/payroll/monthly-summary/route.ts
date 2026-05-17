@@ -58,12 +58,19 @@ export async function GET(request: NextRequest) {
         user: { companyId: auth.companyId },
         status: { in: ['SUBMITTED', 'APPROVED'] },
       },
-      select: { userId: true, totalHours: true, status: true },
+      select: { userId: true, totalHours: true, overtimeHours: true, status: true },
     })
 
     const byUser: Record<
       string,
-      { inskickadeTimmar: number; godkandaTimmar: number; rapportCountInskickad: number; rapportCountGodkand: number }
+      {
+        inskickadeTimmar: number
+        godkandaTimmar: number
+        inskickadeOvertid: number
+        godkandOvertid: number
+        rapportCountInskickad: number
+        rapportCountGodkand: number
+      }
     > = {}
 
     for (const r of reports) {
@@ -71,14 +78,19 @@ export async function GET(request: NextRequest) {
         byUser[r.userId] = {
           inskickadeTimmar: 0,
           godkandaTimmar: 0,
+          inskickadeOvertid: 0,
+          godkandOvertid: 0,
           rapportCountInskickad: 0,
           rapportCountGodkand: 0,
         }
       }
+      const ot = r.overtimeHours ?? 0
       byUser[r.userId].inskickadeTimmar += r.totalHours
+      byUser[r.userId].inskickadeOvertid += ot
       byUser[r.userId].rapportCountInskickad += 1
       if (r.status === 'APPROVED') {
         byUser[r.userId].godkandaTimmar += r.totalHours
+        byUser[r.userId].godkandOvertid += ot
         byUser[r.userId].rapportCountGodkand += 1
       }
     }
@@ -87,6 +99,8 @@ export async function GET(request: NextRequest) {
       const agg = byUser[s.id] || {
         inskickadeTimmar: 0,
         godkandaTimmar: 0,
+        inskickadeOvertid: 0,
+        godkandOvertid: 0,
         rapportCountInskickad: 0,
         rapportCountGodkand: 0,
       }
@@ -96,6 +110,8 @@ export async function GET(request: NextRequest) {
         email: s.email,
         inskickadeTimmar: Math.round(agg.inskickadeTimmar * 100) / 100,
         godkandaTimmar: Math.round(agg.godkandaTimmar * 100) / 100,
+        inskickadeOvertid: Math.round(agg.inskickadeOvertid * 100) / 100,
+        godkandOvertid: Math.round(agg.godkandOvertid * 100) / 100,
         rapportCountInskickad: agg.rapportCountInskickad,
         rapportCountGodkand: agg.rapportCountGodkand,
       }
@@ -103,6 +119,8 @@ export async function GET(request: NextRequest) {
 
     const totalInskickat = employees.reduce((s, e) => s + e.inskickadeTimmar, 0)
     const totalGodkant = employees.reduce((s, e) => s + e.godkandaTimmar, 0)
+    const totalInskickatOvertid = employees.reduce((s, e) => s + e.inskickadeOvertid, 0)
+    const totalGodkantOvertid = employees.reduce((s, e) => s + e.godkandOvertid, 0)
 
     return NextResponse.json({
       month,
@@ -110,6 +128,8 @@ export async function GET(request: NextRequest) {
       totals: {
         inskickadeTimmar: Math.round(totalInskickat * 100) / 100,
         godkandaTimmar: Math.round(totalGodkant * 100) / 100,
+        inskickadeOvertid: Math.round(totalInskickatOvertid * 100) / 100,
+        godkandOvertid: Math.round(totalGodkantOvertid * 100) / 100,
       },
     })
   } catch (error) {

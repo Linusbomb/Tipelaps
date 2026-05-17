@@ -1,10 +1,11 @@
-﻿import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { verifyToken } from '@/lib/auth'
 import { employmentHasEnded } from '@/lib/accountStatus'
 import { adminEffectiveCompanyId } from '@/lib/apiAdmin'
 import { parseDateOnlyLocal } from '@/lib/parseDateOnlyLocal'
 import { isBuyerReferenceUnsupported } from '@/lib/prismaCompat'
+import { cleanOvertimeEntries, sumOvertimeHours } from '@/lib/overtime'
 
 export const dynamic = 'force-dynamic'
 
@@ -50,6 +51,9 @@ export async function GET(request: NextRequest) {
         entries: {
           orderBy: { createdAt: 'asc' },
         },
+        overtimeEntries: {
+          orderBy: { createdAt: 'asc' },
+        },
       },
       orderBy: {
         date: 'desc',
@@ -81,7 +85,15 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { customerId, date, entries, missingHoursReason, buyerReference } = body
+    const { customerId, date, entries, missingHoursReason, buyerReference, overtimeEntries } = body
+
+    let cleanedOvertime
+    try {
+      cleanedOvertime = cleanOvertimeEntries(overtimeEntries)
+    } catch (e: any) {
+      return NextResponse.json({ error: e.message ?? 'Ogiltig övertid' }, { status: 400 })
+    }
+    const overtimeTotal = sumOvertimeHours(cleanedOvertime)
 
     if (!customerId || !date || !Array.isArray(entries) || entries.length === 0) {
       return NextResponse.json(
@@ -178,6 +190,7 @@ export async function POST(request: NextRequest) {
           year: reportDate.getFullYear(),
           totalHours,
           customerTotalHours: totalHours,
+          overtimeHours: overtimeTotal,
           missingHoursReason: remainingHours > 0 ? String(missingHoursReason).trim() : null,
           ...(includeBuyerReference ? { buyerReference: buyerRefTrimmed } : {}),
           month,
@@ -193,12 +206,21 @@ export async function POST(request: NextRequest) {
                   : null,
             })),
           },
+          overtimeEntries: {
+            create: cleanedOvertime.map((row) => ({
+              startTime: row.startTime,
+              endTime: row.endTime,
+              hours: row.hours,
+              note: row.note,
+            })),
+          },
         },
         include: {
           customer: {
             select: { id: true, name: true },
           },
           entries: true,
+          overtimeEntries: true,
         },
       })
 

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { verifyToken } from '@/lib/auth'
 import { isBuyerReferenceUnsupported } from '@/lib/prismaCompat'
+import { cleanOvertimeEntries, sumOvertimeHours } from '@/lib/overtime'
 
 export const dynamic = 'force-dynamic'
 
@@ -54,6 +55,7 @@ export async function GET(
           select: { id: true, name: true },
         },
         entries: true,
+        overtimeEntries: { orderBy: { createdAt: 'asc' } },
       },
     })
 
@@ -92,7 +94,15 @@ export async function PUT(
 
     const { id } = params
     const body = await request.json()
-    const { date, customerId, entries, missingHoursReason, buyerReference } = body
+    const { date, customerId, entries, missingHoursReason, buyerReference, overtimeEntries } = body
+
+    let cleanedOvertime
+    try {
+      cleanedOvertime = cleanOvertimeEntries(overtimeEntries)
+    } catch (e: any) {
+      return NextResponse.json({ error: e.message ?? 'Ogiltig övertid' }, { status: 400 })
+    }
+    const overtimeTotal = sumOvertimeHours(cleanedOvertime)
 
     if (!date) {
       return NextResponse.json({ error: 'Datum krävs' }, { status: 400 })
@@ -221,6 +231,7 @@ export async function PUT(
           customerId: customerId,
           customerTotalHours: totalHours,
           totalHours,
+          overtimeHours: overtimeTotal,
           missingHoursReason: remainingHours > 0 ? reason : null,
           ...(includeBuyerReference ? { buyerReference: buyerRefTrimmed } : {}),
           month,
@@ -235,6 +246,15 @@ export async function PUT(
               referenceNumber: row.referenceNumber,
             })),
           },
+          overtimeEntries: {
+            deleteMany: {},
+            create: cleanedOvertime.map((row) => ({
+              startTime: row.startTime,
+              endTime: row.endTime,
+              hours: row.hours,
+              note: row.note,
+            })),
+          },
         },
         include: {
           user: {
@@ -245,6 +265,7 @@ export async function PUT(
             },
           },
           entries: true,
+          overtimeEntries: { orderBy: { createdAt: 'asc' } },
         },
       })
 
