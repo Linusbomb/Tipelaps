@@ -1,0 +1,201 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String
+  name      String
+  phone     String?  // Telefonnummer
+  employeeCategory String? // LASTBILSCHAUFOR, MASKINFORARE, MARKANLAGGARE, TJANSTEMAN
+  role      String   @default("EMPLOYEE") // ENTREPRENEUR, EMPLOYEE, PAYROLL_COORDINATOR
+  companyId String?
+  company   Company? @relation("CompanyEmployees", fields: [companyId], references: [id])
+  ownedCompany Company? @relation("CompanyOwner")
+  profileImagePath String? // Sökväg till profilbild
+  passwordResetToken String? // Token för lösenordsåterställning
+  passwordResetExpires DateTime? // När token förfaller
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  timeReports TimeReport[]
+  documents EmployeeDocument[]
+  nextOfKin NextOfKin[]
+  projects ProjectEmployee[]
+  vacationWeeks VacationWeek[]
+  employmentEndedAt DateTime? // Avslutat – kan inte logga in; tidrapporter bevaras
+}
+
+model Company {
+  id        String   @id @default(cuid())
+  name      String
+  ownerId   String   @unique
+  owner     User     @relation("CompanyOwner", fields: [ownerId], references: [id])
+  employees User[]   @relation("CompanyEmployees")
+  customers Customer[]
+  projects  Project[]
+  vacationWeeks VacationWeek[]
+  logoPath  String?  // Sökväg till företagets logga
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Customer {
+  id        String   @id @default(cuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name      String
+  organizationNumber String? // Organisationsnummer
+  address   String?  // Adress
+  information String? // Nödvändig information om kunden
+  contactEmail String? // E-post för utskick av tidrapporter till kund
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  timeReports TimeReport[]
+  projects  Project[]
+}
+
+model TimeReport {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  customerId String
+  customer  Customer @relation(fields: [customerId], references: [id])
+  date      DateTime
+  year      Int      // År för tidrapporten
+  totalHours Float
+  customerTotalHours Float // Fakturerbar tid mot denna kund (= total arbetad tid på rapporten, oberoende av fordonstimmar)
+  missingHoursReason String? // Redovisning av vad som fattas om inte 8 timmar
+  buyerReference String? // Valfri beställarreferens (t.ex. kundens order-/arbetsnummer)
+  status    String   @default("DRAFT") // DRAFT = i buffert, SUBMITTED = skickad in, APPROVED = godkänd/skickad till kund
+  submittedAt DateTime? // När tidrapporten skickades in
+  approvedAt DateTime? // När tidrapporten godkändes/skickades till kund
+  approvedBy String? // ID på användaren som godkände
+  month     String   // Månad för tidrapporten (YYYY-MM format)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  entries   TimeReportEntry[]
+}
+
+model TimeReportEntry {
+  id          String   @id @default(cuid())
+  timeReportId String
+  timeReport  TimeReport @relation(fields: [timeReportId], references: [id], onDelete: Cascade)
+  hours       Float
+  machineHours Float?  // Fordonstimmar
+  vehicle     String?  // Fordon man kört
+  description String   // Arbetsbeskrivning
+  location    String?  // Vart du har varit
+  referenceNumber String? // Referensnummer
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model EmployeeDocument {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type        String   // DRIVERS_LICENSE, CERTIFICATION, EDUCATION, EMPLOYMENT_CONTRACT
+  title       String   // T.ex. "Körkort B", "Säkerhetsutbildning", etc.
+  fileName    String   // Filnamn
+  filePath    String   // Sökväg till filen
+  fileSize    Int      // Filstorlek i bytes
+  mimeType    String   // MIME-typ (t.ex. "application/pdf")
+  expiryDate  DateTime? // Förfallodatum (för körkort, certifieringar)
+  issuedDate  DateTime? // Utfärdandedatum
+  description String?  // Ytterligare beskrivning
+  uploadedBy  String?  // ID på användaren som laddade upp (kan vara anställd själv eller chef)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model NextOfKin {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name        String   // Namn på närmsta anhörig
+  relationship String  // Relation (t.ex. "Make", "Fru", "Barn", "Förälder")
+  phone       String?  // Telefonnummer
+  email       String?  // E-post
+  address     String?  // Adress
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Project {
+  id          String   @id @default(cuid())
+  companyId   String
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customerId  String
+  customer    Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  name        String   // Projektnamn
+  address     String   // Adress till projektet
+  latitude    Float?   // Exakt koordinat för var personalen ska vara
+  longitude   Float?   // Exakt koordinat för var personalen ska vara
+  startDate   DateTime // När projektet börjar
+  description String?  // Nödvändig information
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  employees   ProjectEmployee[]
+}
+
+model ProjectEmployee {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assignedEquipment String? // Fordon som tilldelats för projektet
+  accepted  Boolean  @default(false) // Om användaren har accepterat projektet
+  acceptedAt DateTime? // När användaren accepterade projektet
+  completed Boolean  @default(false) // Om användaren markerat projektet som slutfört
+  completedAt DateTime? // När användaren markerade projektet som slutfört
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([projectId, userId])
+}
+
+model VacationWeek {
+  id        String   @id @default(cuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  year      Int
+  week      Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, userId, year, week])
+  @@index([companyId, year])
+}
+
+/// Revisionslogg för säkerhetskänsliga händelser (GDPR – ansvar och spårbarhet).
+/// Inga relationer (FK) – så att rader bevaras även om aktör/mål raderas.
+model AuditLog {
+  id          String   @id @default(cuid())
+  createdAt   DateTime @default(now())
+  action      String   // t.ex. LOGIN_SUCCESS, COMPANY_CREATE, IMPERSONATE_START
+  actorId     String?  // användar-id för den som utförde händelsen (null = okänt)
+  actorEmail  String?
+  actorRole   String?
+  targetType  String?  // t.ex. Company, User
+  targetId    String?
+  companyId   String?  // tenant-tillhörighet om relevant
+  ipAddress   String?
+  userAgent   String?
+  details     Json?    // godtyckliga detaljer
+
+  @@index([companyId, createdAt])
+  @@index([actorId, createdAt])
+  @@index([action, createdAt])
+}

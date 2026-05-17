@@ -1,0 +1,38 @@
+services:
+  - type: web
+    name: tidrapportering-app
+    runtime: node
+    plan: starter
+    region: frankfurt
+    branch: main
+    repo: https://github.com/Linusbomb/Tipelaps
+    buildCommand: npm ci && npm run render-build
+    startCommand: npm run start
+    healthCheckPath: /
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: tidrapportering-db
+          property: connectionString
+      - key: JWT_SECRET
+        sync: false
+      - key: NEXT_PUBLIC_BASE_URL
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: SMTP_FROM
+        sync: false
+
+databases:
+  - name: tidrapportering-db
+    region: frankfurt
+    databaseName: tidrapportering
+    user: tidrapportering

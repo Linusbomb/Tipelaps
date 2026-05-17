@@ -1,0 +1,3 @@
+{
+  "buildCommand": "prisma generate && prisma migrate deploy && prisma db seed && next build"
+}
