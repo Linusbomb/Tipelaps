@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { format } from 'date-fns'
@@ -52,7 +52,7 @@ function projectMatchesSearch(project: Project, needle: string): boolean {
   return blob.includes(needle)
 }
 
-export default function MyProjectsPage() {
+function MyProjectsPageContent() {
   const searchParams = useSearchParams()
   const requestedProjectId = searchParams.get('projectId')
   const [projects, setProjects] = useState<Project[]>([])
@@ -590,5 +590,19 @@ function ProjectCard({
         </div>
       )}
     </div>
+  )
+}
+
+export default function MyProjectsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="app-shell-wide max-w-6xl">
+          <p className="text-gray-700 py-8">Laddar...</p>
+        </div>
+      }
+    >
+      <MyProjectsPageContent />
+    </Suspense>
   )
 }

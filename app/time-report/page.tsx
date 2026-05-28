@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, Suspense } from 'react'
 import { useLanguage } from '@/contexts/LanguageContext'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
@@ -46,7 +46,7 @@ const MACHINE_OPTIONS = [
   'Annat',
 ]
 
-export default function TimeReportPage() {
+function TimeReportPageContent() {
   const { t } = useLanguage()
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -1353,5 +1353,21 @@ export default function TimeReportPage() {
         onClose={() => setSuccessFeedback(null)}
       />
     </div>
+  )
+}
+
+export default function TimeReportPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="app-shell" style={{ backgroundColor: '#E8E8D8', minHeight: '100vh' }}>
+          <div className="app-card">
+            <p className="text-gray-700">Laddar...</p>
+          </div>
+        </div>
+      }
+    >
+      <TimeReportPageContent />
+    </Suspense>
   )
 }

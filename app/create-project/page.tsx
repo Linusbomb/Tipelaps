@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import ModernDatePicker from '../components/DatePicker'
@@ -116,7 +116,7 @@ const ProjectLocationMap = dynamic(() => import('../components/ProjectLocationMa
   ssr: false,
 })
 
-export default function CreateProjectPage() {
+function CreateProjectPageContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const requestedProjectId = searchParams.get('projectId')
@@ -1875,5 +1875,19 @@ export default function CreateProjectPage() {
         </div>
       )}
     </div>
+  )
+}
+
+export default function CreateProjectPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="app-shell-narrow">
+          <p className="text-gray-700 py-8">Laddar...</p>
+        </div>
+      }
+    >
+      <CreateProjectPageContent />
+    </Suspense>
   )
 }
