@@ -16,7 +16,7 @@ async function getUserId(request: NextRequest): Promise<string | null> {
 /** Personal: endast egna tidrapporter kopplade till projektet (projectId). */
 export async function GET(
   request: NextRequest,
-  { params }: { params: { projectId: string } }
+  { params }: { params: { id: string } }
 ) {
   try {
     const userId = await getUserId(request)
@@ -31,7 +31,7 @@ export async function GET(
       )
     }
 
-    const projectId = params.projectId?.trim()
+    const projectId = params.id?.trim()
     if (!projectId) {
       return NextResponse.json({ error: 'Ogiltigt projekt' }, { status: 400 })
     }
