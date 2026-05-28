@@ -49,6 +49,10 @@ export async function GET(request: NextRequest) {
             name: true,
           },
         },
+        attachments: {
+          orderBy: { createdAt: 'desc' },
+          take: 30,
+        },
         employees: {
           select: {
             id: true,
@@ -200,6 +204,10 @@ export async function POST(request: NextRequest) {
             id: true,
             name: true,
           },
+        },
+        attachments: {
+          orderBy: { createdAt: 'desc' },
+          take: 30,
         },
         employees: {
           include: {

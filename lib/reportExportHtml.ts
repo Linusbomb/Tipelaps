@@ -1,6 +1,6 @@
 import { format } from 'date-fns'
 import { sv } from 'date-fns/locale'
-import { formatOvertimeHours, resolveOvertimeHours } from '@/lib/overtime'
+import { computeOvertimeHours, formatOvertimeHours, resolveOvertimeHours } from '@/lib/overtime'
 
 /** Report shape from Prisma include: user, customer, entries[] */
 export function generateReportHTML(report: {
@@ -10,6 +10,7 @@ export function generateReportHTML(report: {
   overtimeHours?: number | null
   missingHoursReason?: string | null
   buyerReference?: string | null
+  totalHours?: number
   user: { name: string }
   customer: { name: string }
   entries: Array<{
@@ -17,13 +18,16 @@ export function generateReportHTML(report: {
     machineHours?: number | null
     vehicle?: string | null
     description?: string | null
+    startTime?: string | null
+    endTime?: string | null
     location?: string | null
     referenceNumber?: string | null
   }>
 }): string {
   const reportDate = format(new Date(report.date), 'd MMMM yyyy', { locale: sv })
-  const totalHours = report.entries.reduce((sum, entry) => sum + entry.hours, 0)
-  const overtimeHours = resolveOvertimeHours(report.overtimeHours, totalHours)
+  const totalHours = report.totalHours ?? report.entries.reduce((sum, entry) => sum + entry.hours, 0)
+  const billableHours = report.customerTotalHours ?? totalHours
+  const overtimeHours = resolveOvertimeHours(report.overtimeHours, totalHours, report.entries)
 
   const entryBlocks = report.entries.map((entry, index) => {
     const mh =
@@ -90,7 +94,7 @@ export function generateReportHTML(report: {
     overtimeHours > 0
       ? `
     <div class="summary-row" style="color: #b45309;">
-      <span><strong>Övertid (över 8 h samma dag):</strong></span>
+      <span><strong>Övertid (över 8 h eller utanför 07:00-16:00):</strong></span>
       <span>${formatOvertimeHours(overtimeHours)} timmar</span>
     </div>`
       : ''
@@ -207,7 +211,7 @@ export function generateReportHTML(report: {
 <body>
   <div class="header">
     <h1>Tidrapport</h1>
-    <p style="color: #666; font-size: 14px;">Redovisning av arbetade timmar</p>
+    <p style="color: #666; font-size: 14px;">Redovisning av debiterbar tid</p>
   </div>
   <div class="info-section">
     <div class="info-box">
@@ -235,12 +239,12 @@ export function generateReportHTML(report: {
   <div class="summary">
     <h2>Sammanfattning</h2>
     <div class="summary-row">
-      <span>Totalt antal timmar:</span>
+      <span>Arbetad tid (lönetid):</span>
       <span>${totalHours.toFixed(1)} timmar</span>
     </div>
     <div class="summary-row">
-      <span>Totaltid för ${report.customer.name} (fakturerbar tid):</span>
-      <span>${totalHours.toFixed(1)} timmar</span>
+      <span>Debiterbar tid för ${report.customer.name}:</span>
+      <span>${billableHours.toFixed(1)} timmar</span>
     </div>
     ${overtimeRow}
     ${reasonRow}

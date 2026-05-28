@@ -1,37 +1,17 @@
 'use client'
 
 import Link from 'next/link'
-import Image from 'next/image'
-import { useLanguage } from '@/contexts/LanguageContext'
+import LvtechCornerLogo from './components/LvtechCornerLogo'
+import TimeLapsHeroBrand from './components/TimeLapsHeroBrand'
 
 export default function Home() {
-  const { t } = useLanguage()
-  
   return (
-    <div style={{ backgroundColor: '#E8E8D8', minHeight: '100vh' }}>
+    <div className="relative" style={{ backgroundColor: '#E8E8D8', minHeight: '100vh' }}>
+      <LvtechCornerLogo />
       {/* Hero Section */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 sm:py-14 md:py-20">
-        <div className="text-center mb-10 sm:mb-14">
-          <div className="inline-flex items-center mb-5">
-            <Image
-              src="/timelaps-logo.png"
-              alt="TimeLaps by LVTECH"
-              width={260}
-              height={260}
-              className="h-28 sm:h-32 md:h-40 w-auto"
-              priority
-            />
-          </div>
-          <p
-            className="mt-4 sm:mt-6 max-w-2xl mx-auto text-xl sm:text-2xl md:text-3xl leading-relaxed font-medium tracking-wide px-2"
-            style={{
-              color: '#2D5016',
-              fontFamily: '"Avenir Next", "Montserrat", "Segoe UI", sans-serif',
-              letterSpacing: '0.02em',
-            }}
-          >
-            Tidrapportering ska vara enkelt
-          </p>
+        <div className="text-center mb-10 sm:mb-14 pt-14 sm:pt-12">
+          <TimeLapsHeroBrand className="-mt-2" />
         </div>
 
         {/* Login Cards */}
@@ -81,18 +61,10 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Register CTA */}
         <div className="text-center mb-14 sm:mb-20">
-          <p className="mb-4 sm:mb-6 text-base sm:text-lg" style={{ color: '#2D5016' }}>
-            Har du inget konto?
+          <p className="text-base sm:text-lg font-medium" style={{ color: '#2D5016' }}>
+            Inget konto? Kontakta admin på ditt företag.
           </p>
-          <Link
-            href="/register"
-            className="inline-block text-white px-7 sm:px-10 py-3 sm:py-4 rounded-xl text-base sm:text-lg font-semibold transition-all duration-300 hover:shadow-lg hover:-translate-y-0.5"
-            style={{ backgroundColor: '#2D5016' }}
-          >
-            Skapa nytt konto
-          </Link>
         </div>
 
         {/* Features Section */}

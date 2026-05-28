@@ -1,11 +1,16 @@
-import { formatOvertimeHours, STANDARD_DAY_HOURS } from '@/lib/overtime'
+import {
+  formatOvertimeHours,
+  NORMAL_WORK_END,
+  NORMAL_WORK_START,
+  STANDARD_DAY_HOURS,
+} from '@/lib/overtime'
 
 type Props = {
   overtimeHours: number
   className?: string
 }
 
-/** Visar övertid när dagens total överstiger 8 timmar. */
+/** Visar övertid enligt svensk arbetstidsregel. */
 export default function OvertimeSummary({ overtimeHours, className = '' }: Props) {
   if (!Number.isFinite(overtimeHours) || overtimeHours <= 0) return null
 
@@ -18,8 +23,8 @@ export default function OvertimeSummary({ overtimeHours, className = '' }: Props
         {formatOvertimeHours(overtimeHours)} timmar övertid
       </p>
       <p className="mt-0.5 text-amber-800/90">
-        All tid över {STANDARD_DAY_HOURS} timmar samma dag räknas som övertid (normal dag:{' '}
-        {STANDARD_DAY_HOURS} h).
+        Övertid räknas för tid över {STANDARD_DAY_HOURS} h per dag och arbetad tid utanför{' '}
+        {NORMAL_WORK_START}-{NORMAL_WORK_END}.
       </p>
     </div>
   )

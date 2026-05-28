@@ -83,6 +83,27 @@ export async function PUT(
       return NextResponse.json({ error: 'Kund hittades inte' }, { status: 404 })
     }
 
+    const normalizedOrgNumber =
+      organizationNumber === undefined || organizationNumber === null || organizationNumber === ''
+        ? null
+        : String(organizationNumber).trim()
+    if (normalizedOrgNumber) {
+      const duplicate = await prisma.customer.findFirst({
+        where: {
+          companyId,
+          organizationNumber: normalizedOrgNumber,
+          NOT: { id: params.id },
+        },
+        select: { id: true, name: true },
+      })
+      if (duplicate) {
+        return NextResponse.json(
+          { error: `Kund med org.nr finns redan: ${duplicate.name}` },
+          { status: 409 }
+        )
+      }
+    }
+
     // Uppdatera kunden
     const updateData: any = {
       name: name || existingCustomer.name,
@@ -90,7 +111,7 @@ export async function PUT(
 
     // Hantera organizationNumber - konvertera tom sträng till null
     if (organizationNumber !== undefined) {
-      updateData.organizationNumber = organizationNumber === '' ? null : organizationNumber
+      updateData.organizationNumber = normalizedOrgNumber
     } else {
       updateData.organizationNumber = existingCustomer.organizationNumber
     }
@@ -127,6 +148,91 @@ export async function PUT(
     console.error('Stack:', error.stack)
     return NextResponse.json(
       { error: 'Kunde inte uppdatera kund', details: error.message },
+      { status: 500 }
+    )
+  }
+}
+
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const user = await getUser(request)
+    if (!user) {
+      return NextResponse.json({ error: 'Ej auktoriserad' }, { status: 401 })
+    }
+
+    const companyId = adminEffectiveCompanyId(user)
+    if (!companyId) {
+      return NextResponse.json({ error: 'Du måste tillhöra ett företag' }, { status: 400 })
+    }
+
+    const body = await request.json().catch(() => ({}))
+    const archive = body?.active === true ? false : body?.archive !== false
+
+    const existingCustomer = await prisma.customer.findUnique({
+      where: { id: params.id },
+    })
+    if (!existingCustomer || existingCustomer.companyId !== companyId) {
+      return NextResponse.json({ error: 'Kund hittades inte' }, { status: 404 })
+    }
+
+    const customer = await prisma.customer.update({
+      where: { id: params.id },
+      data: { archivedAt: archive ? new Date() : null },
+    })
+
+    return NextResponse.json(customer)
+  } catch (error: any) {
+    console.error('Fel vid arkivering av kund:', error)
+    return NextResponse.json(
+      { error: 'Kunde inte uppdatera kundstatus' },
+      { status: 500 }
+    )
+  }
+}
+
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const user = await getUser(request)
+    if (!user) {
+      return NextResponse.json({ error: 'Ej auktoriserad' }, { status: 401 })
+    }
+
+    const companyId = adminEffectiveCompanyId(user)
+    if (!companyId) {
+      return NextResponse.json({ error: 'Du måste tillhöra ett företag' }, { status: 400 })
+    }
+
+    const existingCustomer = await prisma.customer.findUnique({
+      where: { id: params.id },
+      select: { id: true, companyId: true, name: true },
+    })
+    if (!existingCustomer || existingCustomer.companyId !== companyId) {
+      return NextResponse.json({ error: 'Kund hittades inte' }, { status: 404 })
+    }
+
+    const [timeReportsCount, projectsCount] = await Promise.all([
+      prisma.timeReport.count({ where: { customerId: params.id } }),
+      prisma.project.count({ where: { customerId: params.id } }),
+    ])
+    if (timeReportsCount > 0 || projectsCount > 0) {
+      return NextResponse.json(
+        { error: 'Kunden kan inte raderas eftersom den har tidrapporter eller projekt.' },
+        { status: 409 }
+      )
+    }
+
+    await prisma.customer.delete({ where: { id: params.id } })
+    return NextResponse.json({ ok: true })
+  } catch (error: any) {
+    console.error('Fel vid radering av kund:', error)
+    return NextResponse.json(
+      { error: 'Kunde inte radera kund' },
       { status: 500 }
     )
   }

@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { verifyToken } from '@/lib/auth'
 import { isBuyerReferenceUnsupported } from '@/lib/prismaCompat'
 import { persistReportOvertimeHours } from '@/lib/overtime'
+import { cleanClockTime, persistTimeEntryClockTimes } from '@/lib/timeEntryClockTimes'
 
 export const dynamic = 'force-dynamic'
 
@@ -93,7 +94,15 @@ export async function PUT(
 
     const { id } = params
     const body = await request.json()
-    const { date, customerId, entries, missingHoursReason, buyerReference } = body
+    const {
+      date,
+      customerId,
+      entries,
+      missingHoursReason,
+      buyerReference,
+      payrollTotalHours,
+      customerTotalHours,
+    } = body
 
     if (!date) {
       return NextResponse.json({ error: 'Datum krävs' }, { status: 400 })
@@ -125,6 +134,8 @@ export async function PUT(
       machineHours: number | null
       description: string
       vehicle: string | null
+      startTime: string | null
+      endTime: string | null
       location: string | null
       referenceNumber: string | null
     }> = []
@@ -181,6 +192,8 @@ export async function PUT(
         machineHours,
         description,
         vehicle: vehicleCombined,
+        startTime: cleanClockTime(raw.startTime),
+        endTime: cleanClockTime(raw.endTime),
         location: typeof raw.location === 'string' && raw.location.trim() ? raw.location.trim() : null,
         referenceNumber:
           typeof raw.referenceNumber === 'string' && raw.referenceNumber.trim()
@@ -189,7 +202,21 @@ export async function PUT(
       })
     }
 
-    const totalHours = cleanedRows.reduce((sum, row) => sum + row.hours, 0)
+    const activityTotalHours = cleanedRows.reduce((sum, row) => sum + row.hours, 0)
+    const totalHours =
+      payrollTotalHours !== undefined && payrollTotalHours !== null && payrollTotalHours !== ''
+        ? Number(payrollTotalHours)
+        : activityTotalHours
+    if (!Number.isFinite(totalHours) || totalHours < 0) {
+      return NextResponse.json({ error: 'Lönetid måste vara 0 eller mer' }, { status: 400 })
+    }
+    const billableHours =
+      customerTotalHours !== undefined && customerTotalHours !== null && customerTotalHours !== ''
+        ? Number(customerTotalHours)
+        : totalHours
+    if (!Number.isFinite(billableHours) || billableHours < 0) {
+      return NextResponse.json({ error: 'Debiterbar tid måste vara 0 eller mer' }, { status: 400 })
+    }
     const totalMachineHours = cleanedRows.reduce(
       (sum, row) => sum + (row.machineHours && row.machineHours > 0 ? row.machineHours : 0),
       0
@@ -220,7 +247,7 @@ export async function PUT(
           date: new Date(date),
           year: reportYear,
           customerId: customerId,
-          customerTotalHours: totalHours,
+          customerTotalHours: Math.round(billableHours * 100) / 100,
           totalHours,
           missingHoursReason: remainingHours > 0 ? reason : null,
           ...(includeBuyerReference ? { buyerReference: buyerRefTrimmed } : {}),
@@ -259,9 +286,17 @@ export async function PUT(
       updatedReport = await updateReport(false)
     }
 
-    await persistReportOvertimeHours(id, totalHours)
+    await persistReportOvertimeHours(id, totalHours, cleanedRows)
+    await persistTimeEntryClockTimes(updatedReport.entries, cleanedRows)
 
-    return NextResponse.json(updatedReport)
+    return NextResponse.json({
+      ...updatedReport,
+      entries: updatedReport.entries.map((entry, index) => ({
+        ...entry,
+        startTime: cleanedRows[index]?.startTime ?? null,
+        endTime: cleanedRows[index]?.endTime ?? null,
+      })),
+    })
   } catch (error: any) {
     console.error('Fel vid uppdatering av tidrapport:', error)
     console.error('Error details:', {

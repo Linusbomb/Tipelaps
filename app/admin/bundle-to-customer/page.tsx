@@ -99,7 +99,7 @@ export default function BundleToCustomerPage() {
     }
 
     const loadCustomers = async () => {
-      const res = await fetch('/api/customers', {
+      const res = await fetch('/api/customers?activeOnly=true', {
         headers: { Authorization: `Bearer ${token}` },
       })
       if (res.ok) {

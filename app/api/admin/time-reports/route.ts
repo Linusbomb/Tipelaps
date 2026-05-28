@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { verifyToken } from '@/lib/auth'
+import { adminEffectiveCompanyId } from '@/lib/apiAdmin'
+import { getPayrollStaffForCompany } from '@/lib/payrollStaff'
 
 export const dynamic = 'force-dynamic'
 
@@ -16,7 +18,7 @@ async function getUser(request: NextRequest) {
 
   const user = await prisma.user.findUnique({
     where: { id: decoded.userId },
-    include: { company: true },
+    include: { company: true, ownedCompany: true },
   })
 
   return user
@@ -37,15 +39,32 @@ export async function GET(request: NextRequest) {
     const month = searchParams.get('month')
     const status = searchParams.get('status')
     const employeeId = searchParams.get('employeeId')
+    const startDate = searchParams.get('startDate')
+    const endDate = searchParams.get('endDate')
+
+    const companyId = adminEffectiveCompanyId(user)
+    if (!companyId) {
+      return NextResponse.json({ error: 'Företag saknas' }, { status: 400 })
+    }
+
+    const staff = await getPayrollStaffForCompany(companyId)
+    const staffIds = staff.map((s) => s.id)
 
     const where: any = {
-      user: {
-        companyId: user.companyId,
-      },
+      userId: { in: staffIds },
     }
 
     if (month) {
       where.month = month
+    }
+
+    if (startDate && endDate) {
+      const start = new Date(`${startDate}T00:00:00`)
+      const end = new Date(`${endDate}T00:00:00`)
+      if (!Number.isNaN(start.getTime()) && !Number.isNaN(end.getTime())) {
+        where.date = { gte: start, lt: end }
+        delete where.month
+      }
     }
 
     if (status && status !== 'ALL') {
@@ -53,7 +72,7 @@ export async function GET(request: NextRequest) {
     }
 
     if (employeeId) {
-      where.userId = employeeId
+      where.userId = staffIds.includes(employeeId) ? employeeId : '__unknown_employee__'
     }
 
     // Hämta alla rapporter från anställda i samma företag
@@ -68,6 +87,12 @@ export async function GET(request: NextRequest) {
           },
         },
         customer: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        project: {
           select: {
             id: true,
             name: true,

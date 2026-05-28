@@ -1,0 +1,2 @@
+ALTER TABLE "TimeReportEntry" ADD COLUMN IF NOT EXISTS "startTime" TEXT;
+ALTER TABLE "TimeReportEntry" ADD COLUMN IF NOT EXISTS "endTime" TEXT;

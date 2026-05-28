@@ -1,11 +1,51 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { Fragment, useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 
 function roleLabel(role: string): string {
   if (role === 'ENTREPRENEUR' || role === 'PAYROLL_COORDINATOR') return 'Admin'
   return 'Personal'
+}
+
+type AbsenceSummary = {
+  label: string
+  submittedHours: number
+  approvedHours: number
+}
+
+type OvertimeDetail = {
+  reportId: string
+  date: string
+  customerName: string
+  totalHours: number
+  overtimeHours: number
+  timeRanges: string[]
+}
+
+type AbsenceDetail = {
+  id: string
+  date: string
+  type: string
+  label: string
+  hours: number
+  status: string
+  note: string | null
+}
+
+function formatHours(value: number): string {
+  return Number.isFinite(value) ? value.toFixed(1) : '0.0'
+}
+
+function formatAbsenceDetail(items: AbsenceSummary[] | undefined, approvedOnly = false): string {
+  if (!items || items.length === 0) return '—'
+  const parts = items
+    .map((item) => {
+      const hours = approvedOnly ? item.approvedHours : item.submittedHours
+      return hours > 0 ? `${item.label}: ${formatHours(hours)} h` : ''
+    })
+    .filter(Boolean)
+  return parts.length > 0 ? parts.join(', ') : '—'
 }
 
 interface Row {
@@ -17,8 +57,13 @@ interface Row {
   godkandaTimmar: number
   overtidInskickad: number
   overtidGodkand: number
+  overtimeDetails: OvertimeDetail[]
   rapportCountInskickad: number
   rapportCountGodkand: number
+  absenceHoursSubmitted: number
+  absenceHoursApproved: number
+  absenceSummary: AbsenceSummary[]
+  absenceDetails: AbsenceDetail[]
 }
 
 interface Summary {
@@ -29,6 +74,8 @@ interface Summary {
     godkandaTimmar: number
     overtidInskickad: number
     overtidGodkand: number
+    absenceHoursSubmitted: number
+    absenceHoursApproved: number
   }
 }
 
@@ -50,6 +97,8 @@ export default function PayrollHoursPage() {
   const [selectedMonthIndex, setSelectedMonthIndex] = useState(now.getMonth())
   const [exporting, setExporting] = useState(false)
   const [copyDone, setCopyDone] = useState(false)
+  const [expandedAbsenceRows, setExpandedAbsenceRows] = useState<Record<string, boolean>>({})
+  const [expandedOvertimeRows, setExpandedOvertimeRows] = useState<Record<string, boolean>>({})
 
   const ym = `${selectedYear}-${String(selectedMonthIndex + 1).padStart(2, '0')}`
 
@@ -157,12 +206,15 @@ export default function PayrollHoursPage() {
       'Godkända timmar',
       'Övertid inskickad (h)',
       'Övertid godkänd (h)',
+      'Frånvaro inskickad (h)',
+      'Frånvaro godkänd (h)',
+      'Frånvarotyp (godkänd)',
       'Antal rapporter (insk.)',
       'Antal godkända',
     ].join('\t')
     const lines = summary.employees.map(
       (e) =>
-        `${e.name}\t${e.email}\t${e.inskickadeTimmar}\t${e.godkandaTimmar}\t${e.overtidInskickad}\t${e.overtidGodkand}\t${e.rapportCountInskickad}\t${e.rapportCountGodkand}`
+        `${e.name}\t${e.email}\t${e.inskickadeTimmar}\t${e.godkandaTimmar}\t${e.overtidInskickad}\t${e.overtidGodkand}\t${e.absenceHoursSubmitted}\t${e.absenceHoursApproved}\t${formatAbsenceDetail(e.absenceSummary, true)}\t${e.rapportCountInskickad}\t${e.rapportCountGodkand}`
     )
     const text = `${header}\n${lines.join('\n')}`
     try {
@@ -191,7 +243,7 @@ export default function PayrollHoursPage() {
         <div>
           <h1 className="app-title text-gray-900">Arbetstid för lön</h1>
           <p className="text-gray-600 mt-1">
-            Totalt antal timmar per anställd per månad. Övertid = all tid över 8 h samma dag per tidrapport.
+            Totalt antal timmar per anställd per månad. Övertid = tid över 8 h per dag eller arbete utanför 07:00-16:00.
           </p>
         </div>
         <div className="flex items-center gap-4 shrink-0">
@@ -280,6 +332,12 @@ export default function PayrollHoursPage() {
       <div className="bg-white shadow rounded-lg overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-200">
           <h2 className="text-lg font-semibold text-gray-900">Summering · {monthLabelSv(ym)}</h2>
+          {summary && !summaryLoading ? (
+            <p className="text-sm text-gray-600 mt-1">
+              Arbetstid godkänd: {formatHours(summary.totals.godkandaTimmar)} h · Frånvaro godkänd:{' '}
+              {formatHours(summary.totals.absenceHoursApproved)} h
+            </p>
+          ) : null}
         </div>
         {summaryLoading ? (
           <div className="p-8 text-center text-gray-600">Laddar…</div>
@@ -308,35 +366,144 @@ export default function PayrollHoursPage() {
                     Övertid godkänd
                   </th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wide">
+                    Frånvaro inskickad
+                  </th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wide">
+                    Frånvaro godkänd
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide min-w-[180px]">
+                    Frånvarotyp (godkänd)
+                  </th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wide">
                     Rapporter
                   </th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {summary.employees.map((e) => (
-                  <tr key={e.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 text-sm text-gray-900 font-medium">
-                      {e.name}
-                      {e.role ? (
-                        <span className="ml-2 text-xs font-normal text-gray-500">
-                          ({roleLabel(e.role)})
-                        </span>
-                      ) : null}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-700">{e.email}</td>
-                    <td className="px-4 py-3 text-sm text-gray-900 text-right tabular-nums">
-                      {e.inskickadeTimmar.toFixed(1)}
-                    </td>
-                    <td className="px-4 py-3 text-sm font-semibold text-right tabular-nums" style={{ color: '#2D5016' }}>
-                      {e.godkandaTimmar.toFixed(1)}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-amber-900 text-right tabular-nums font-medium">
-                      {e.overtidGodkand > 0 ? e.overtidGodkand.toFixed(1) : '—'}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-600 text-right">
-                      {e.rapportCountGodkand}/{e.rapportCountInskickad}
-                    </td>
-                  </tr>
+                  <Fragment key={e.id}>
+                    <tr className="hover:bg-gray-50">
+                      <td className="px-4 py-3 text-sm text-gray-900 font-medium">
+                        {e.name}
+                        {e.role ? (
+                          <span className="ml-2 text-xs font-normal text-gray-500">
+                            ({roleLabel(e.role)})
+                          </span>
+                        ) : null}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-700">{e.email}</td>
+                      <td className="px-4 py-3 text-sm text-gray-900 text-right tabular-nums">
+                        {e.inskickadeTimmar.toFixed(1)}
+                      </td>
+                      <td className="px-4 py-3 text-sm font-semibold text-right tabular-nums" style={{ color: '#2D5016' }}>
+                        {e.godkandaTimmar.toFixed(1)}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-amber-900 text-right tabular-nums font-medium">
+                        {e.overtidGodkand > 0 ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setExpandedOvertimeRows((prev) => ({ ...prev, [e.id]: !prev[e.id] }))
+                            }
+                            className="font-semibold underline underline-offset-2 hover:text-amber-950"
+                          >
+                            {e.overtidGodkand.toFixed(1)} h
+                          </button>
+                        ) : (
+                          '—'
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-700 text-right tabular-nums">
+                        {e.absenceHoursSubmitted > 0 ? formatHours(e.absenceHoursSubmitted) : '—'}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-right tabular-nums font-semibold" style={{ color: '#2D5016' }}>
+                        {e.absenceHoursApproved > 0 ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setExpandedAbsenceRows((prev) => ({ ...prev, [e.id]: !prev[e.id] }))
+                            }
+                            className="underline underline-offset-2 hover:opacity-80"
+                          >
+                            {formatHours(e.absenceHoursApproved)} h
+                          </button>
+                        ) : (
+                          '—'
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-700">
+                        {e.absenceSummary.some((a) => a.approvedHours > 0) ? (
+                          <ul className="space-y-0.5 text-xs">
+                            {e.absenceSummary
+                              .filter((a) => a.approvedHours > 0)
+                              .map((a) => (
+                                <li key={a.label}>
+                                  <span className="font-medium text-gray-900">{a.label}</span>:{' '}
+                                  {formatHours(a.approvedHours)} h
+                                </li>
+                              ))}
+                          </ul>
+                        ) : (
+                          '—'
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-600 text-right">
+                        {e.rapportCountGodkand}/{e.rapportCountInskickad}
+                      </td>
+                    </tr>
+                    {expandedAbsenceRows[e.id] &&
+                    (e.absenceHoursSubmitted > 0 || e.absenceHoursApproved > 0) ? (
+                      <tr className="bg-green-50/60">
+                        <td colSpan={9} className="px-4 py-3 text-sm text-gray-700">
+                          <div className="font-semibold mb-2">Frånvaro per dag</div>
+                          {e.absenceDetails.length > 0 ? (
+                            <ul className="space-y-1">
+                              {e.absenceDetails.map((detail) => (
+                                <li key={detail.id} className="flex flex-wrap gap-x-2 gap-y-0.5">
+                                  <span className="font-medium">{detail.date}</span>
+                                  <span>{detail.label}</span>
+                                  <span>{formatHours(detail.hours)} h</span>
+                                  <span className="text-gray-500">
+                                    ({detail.status === 'APPROVED' ? 'godkänd' : 'inskickad'})
+                                  </span>
+                                  {detail.note?.trim() ? (
+                                    <span className="text-gray-500">— {detail.note}</span>
+                                  ) : null}
+                                </li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <span>{formatAbsenceDetail(e.absenceSummary, false)}</span>
+                          )}
+                        </td>
+                      </tr>
+                    ) : null}
+                    {expandedOvertimeRows[e.id] && e.overtidGodkand > 0 ? (
+                      <tr className="bg-amber-50/70">
+                        <td colSpan={9} className="px-4 py-3 text-sm text-gray-700">
+                          <div className="font-semibold mb-2">Övertidsspecifikation:</div>
+                          {e.overtimeDetails.length > 0 ? (
+                            <div className="space-y-2">
+                              {e.overtimeDetails.map((detail) => (
+                                <div key={detail.reportId}>
+                                  <div className="font-medium">
+                                    {detail.date} · {detail.customerName} · total {formatHours(detail.totalHours)} h · övertid {formatHours(detail.overtimeHours)} h
+                                  </div>
+                                  <ul className="list-disc pl-5 text-gray-600">
+                                    {detail.timeRanges.map((range, idx) => (
+                                      <li key={`${detail.reportId}-${idx}`}>{range}</li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <span>Ingen klockslagsspecifikation finns på rapporterna ännu.</span>
+                          )}
+                        </td>
+                      </tr>
+                    ) : null}
+                  </Fragment>
                 ))}
               </tbody>
               <tfoot className="bg-gray-50">
@@ -355,8 +522,21 @@ export default function PayrollHoursPage() {
                       ? summary.totals.overtidGodkand.toFixed(1)
                       : '—'}
                   </td>
+                  <td className="px-4 py-3 text-sm font-semibold text-right tabular-nums">
+                    {summary.totals.absenceHoursSubmitted > 0
+                      ? formatHours(summary.totals.absenceHoursSubmitted)
+                      : '—'}
+                  </td>
+                  <td className="px-4 py-3 text-sm font-semibold text-right tabular-nums" style={{ color: '#2D5016' }}>
+                    {summary.totals.absenceHoursApproved > 0
+                      ? formatHours(summary.totals.absenceHoursApproved)
+                      : '—'}
+                  </td>
+                  <td className="px-4 py-3 text-sm text-gray-500">
+                    —
+                  </td>
                   <td className="px-4 py-3 text-sm text-gray-500 text-right">
-                    {/* leave blank */}
+                    —
                   </td>
                 </tr>
               </tfoot>

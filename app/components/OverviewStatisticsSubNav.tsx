@@ -1,16 +1,16 @@
 'use client'
 
-import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+export type DashboardViewTab = 'overview' | 'statistics'
 
-/** Undermeny mellan Överblick och Statistik (visas högst upp på båda sidorna). */
-export default function OverviewStatisticsSubNav() {
-  const pathname = usePathname() || ''
-  const onDashboard = pathname === '/dashboard'
-  const onStatistics = pathname === '/statistics'
+type Props = {
+  activeTab: DashboardViewTab
+  onTabChange: (tab: DashboardViewTab) => void
+}
 
+/** Flikar mellan Överblick och Statistik — utan sidnavigering. */
+export default function OverviewStatisticsSubNav({ activeTab, onTabChange }: Props) {
   const base =
-    'inline-flex px-4 py-2 rounded-md text-sm font-medium transition-colors border'
+    'inline-flex px-4 py-2 rounded-md text-sm font-medium transition-colors border cursor-pointer'
   const inactive =
     'text-gray-700 border-gray-200 bg-white hover:bg-gray-50 hover:border-green-900/25'
   const active = 'text-white border-transparent shadow-sm'
@@ -20,22 +20,24 @@ export default function OverviewStatisticsSubNav() {
       className="flex flex-wrap gap-2 mb-6 pb-4 border-b border-gray-200"
       aria-label="Överblick och statistik"
     >
-      <Link
-        href="/dashboard"
-        className={`${base} ${onDashboard ? active : inactive}`}
-        style={onDashboard ? { backgroundColor: '#2D5016' } : undefined}
-        aria-current={onDashboard ? 'page' : undefined}
+      <button
+        type="button"
+        onClick={() => onTabChange('overview')}
+        className={`${base} ${activeTab === 'overview' ? active : inactive}`}
+        style={activeTab === 'overview' ? { backgroundColor: '#2D5016' } : undefined}
+        aria-current={activeTab === 'overview' ? 'page' : undefined}
       >
         Överblick
-      </Link>
-      <Link
-        href="/statistics"
-        className={`${base} ${onStatistics ? active : inactive}`}
-        style={onStatistics ? { backgroundColor: '#2D5016' } : undefined}
-        aria-current={onStatistics ? 'page' : undefined}
+      </button>
+      <button
+        type="button"
+        onClick={() => onTabChange('statistics')}
+        className={`${base} ${activeTab === 'statistics' ? active : inactive}`}
+        style={activeTab === 'statistics' ? { backgroundColor: '#2D5016' } : undefined}
+        aria-current={activeTab === 'statistics' ? 'page' : undefined}
       >
         Statistik
-      </Link>
+      </button>
     </nav>
   )
 }

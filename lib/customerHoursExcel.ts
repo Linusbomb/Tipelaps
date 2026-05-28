@@ -52,9 +52,9 @@ export function buildCustomerHoursExcelBuffer(
     'Beställarens referens',
     'Timmar (aktivitet)',
     'Fordonstimmar',
-    'Timmar rapport totalt',
+    'Lönetid rapport (intern)',
     'Övertid (h)',
-    'Fakturerbar tid kund',
+    'Debiterbar tid kund',
     'Fordon',
     'Arbetsbeskrivning',
     'Plats',
@@ -132,7 +132,7 @@ export function buildCustomerHoursExcelBuffer(
   }
 
   const summaryRows: (string | number)[][] = [
-    ['Personal', 'E-post', 'Antal tidrapporter', 'Timmar totalt (fakturerbart)', 'Övertid totalt (h)'],
+    ['Personal', 'E-post', 'Antal tidrapporter', 'Debiterbar tid totalt', 'Övertid totalt (h)'],
     ...Array.from(summaryMap.values())
       .sort((a, b) => a.name.localeCompare(b.name, 'sv'))
       .map((row) => [
@@ -154,7 +154,7 @@ export function buildCustomerHoursExcelBuffer(
   )
   summaryRows.push([])
   summaryRows.push(['Totalt antal tidrapporter', reports.length])
-  summaryRows.push(['Timmar totalt', Math.round(totalHours * 100) / 100])
+  summaryRows.push(['Debiterbar tid totalt', Math.round(totalHours * 100) / 100])
   summaryRows.push(['Övertid totalt', Math.round(totalOvertime * 100) / 100])
 
   const wb = XLSX.utils.book_new()

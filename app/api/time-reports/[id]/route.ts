@@ -6,6 +6,8 @@ import { adminEffectiveCompanyId } from '@/lib/apiAdmin'
 import { parseDateOnlyLocal } from '@/lib/parseDateOnlyLocal'
 import { isBuyerReferenceUnsupported } from '@/lib/prismaCompat'
 import { persistReportOvertimeHours } from '@/lib/overtime'
+import { cleanClockTime, persistTimeEntryClockTimes } from '@/lib/timeEntryClockTimes'
+import { resolveTimeReportSubject } from '@/lib/timeReportSubject'
 
 export const dynamic = 'force-dynamic'
 
@@ -39,7 +41,9 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
       where: { id: params.id, userId },
       include: {
         customer: { select: { id: true, name: true } },
+        project: { select: { id: true, name: true } },
         entries: { orderBy: { createdAt: 'asc' } },
+        attachments: { orderBy: { createdAt: 'desc' } },
       },
     })
 
@@ -88,7 +92,7 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
     }
 
     const body = await request.json()
-    const { customerId, date, entries, missingHoursReason, buyerReference } = body
+    const { customerId, projectId, date, entries, missingHoursReason, buyerReference } = body
 
     if (!customerId || !date || !Array.isArray(entries) || entries.length === 0) {
       return NextResponse.json(
@@ -114,11 +118,25 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
       return NextResponse.json({ error: 'Kunden tillhör inte ditt företag' }, { status: 400 })
     }
 
+    let validProjectId: string | null = null
+    if (projectId && String(projectId).trim()) {
+      const project = await prisma.project.findUnique({
+        where: { id: String(projectId) },
+        select: { id: true, companyId: true },
+      })
+      if (!project || project.companyId !== effectiveCompanyId) {
+        return NextResponse.json({ error: 'Projektet tillhör inte ditt företag' }, { status: 400 })
+      }
+      validProjectId = project.id
+    }
+
     const cleanedEntries = entries.map((entry: any) => ({
       hours: Number(entry.hours) || 0,
       machineHours: entry.machineHours !== null && entry.machineHours !== undefined ? Number(entry.machineHours) : null,
       description: typeof entry.description === 'string' ? entry.description.trim() : '',
       machineType: typeof entry.machineType === 'string' ? entry.machineType.trim() : '',
+      startTime: cleanClockTime(entry.startTime),
+      endTime: cleanClockTime(entry.endTime),
       registrationNumber:
         typeof entry.registrationNumber === 'string' ? entry.registrationNumber.trim() : '',
     }))
@@ -184,6 +202,7 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
           where: { id: existing.id },
           data: {
             customerId,
+            projectId: validProjectId,
             date: reportDate,
             year: reportDate.getFullYear(),
             month,
@@ -216,13 +235,31 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
       await updateReport(false)
     }
 
-    await persistReportOvertimeHours(existing.id, totalHours)
+    await persistReportOvertimeHours(existing.id, totalHours, cleanedEntries)
 
-    const updated = await prisma.timeReport.findUnique({
+    let updated = await prisma.timeReport.findUnique({
       where: { id: existing.id },
       include: {
         customer: { select: { id: true, name: true } },
+        project: { select: { id: true, name: true } },
         entries: { orderBy: { createdAt: 'asc' } },
+        attachments: { orderBy: { createdAt: 'desc' } },
+      },
+    })
+
+    if (!updated) {
+      return NextResponse.json({ error: 'Kunde inte ladda uppdaterad rapport' }, { status: 500 })
+    }
+
+    await persistTimeEntryClockTimes(updated.entries, cleanedEntries)
+
+    updated = await prisma.timeReport.findUnique({
+      where: { id: existing.id },
+      include: {
+        customer: { select: { id: true, name: true } },
+        project: { select: { id: true, name: true } },
+        entries: { orderBy: { createdAt: 'asc' } },
+        attachments: { orderBy: { createdAt: 'desc' } },
       },
     })
 
@@ -255,17 +292,24 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
     }
 
     const existing = await prisma.timeReport.findFirst({
-      where: { id: params.id, userId },
-      select: { id: true, status: true },
+      where: { id: params.id },
+      select: { id: true, status: true, userId: true },
     })
 
     if (!existing) {
       return NextResponse.json({ error: 'Tidrapport hittades inte' }, { status: 404 })
     }
 
+    const subject = await resolveTimeReportSubject(userId, existing.userId)
+    if (!subject.ok) return subject.response
+
+    if (subject.reportUserId !== existing.userId) {
+      return NextResponse.json({ error: 'Du har inte behörighet att ta bort denna rapport' }, { status: 403 })
+    }
+
     if (existing.status !== 'DRAFT') {
       return NextResponse.json(
-        { error: 'Endast sparade utkast kan tas bort. Inskickade rapporter kan inte raderas.' },
+        { error: 'Endast utkast kan tas bort. Inskickade eller godkända rapporter är låsta.' },
         { status: 400 }
       )
     }

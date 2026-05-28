@@ -44,6 +44,10 @@ export async function GET(request: NextRequest) {
                 name: true,
               },
             },
+            attachments: {
+              orderBy: { createdAt: 'desc' },
+              take: 30,
+            },
             employees: {
               include: {
                 user: {

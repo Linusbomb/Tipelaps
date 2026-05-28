@@ -1,11 +1,12 @@
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import ModernDatePicker from '../components/DatePicker'
 import SearchableSelect from '../components/SearchableSelect'
 import RelatedProjectTimeReportsPanel from '../components/RelatedProjectTimeReportsPanel'
+import { reverseGeocode } from '@/lib/geocoding'
 
 interface Employee {
   id: string
@@ -16,6 +17,12 @@ interface Employee {
 interface Customer {
   id: string
   name: string
+}
+
+interface AddressSuggestion {
+  display_name: string
+  lat: string
+  lon: string
 }
 
 interface CompanyProject {
@@ -43,6 +50,11 @@ interface CompanyProject {
       name: string
       email: string
     }
+  }>
+  attachments?: Array<{
+    id: string
+    fileName: string
+    createdAt: string
   }>
 }
 
@@ -72,6 +84,19 @@ function latestEmployeeCompletedAtMs(project: CompanyProject): number {
   return max
 }
 
+function latestEmployeeCompletedAtDate(project: CompanyProject): Date | null {
+  let latest: Date | null = null
+  for (const e of project.employees) {
+    if (!e.completed || !e.completedAt) continue
+    const d = new Date(e.completedAt)
+    if (Number.isNaN(d.getTime())) continue
+    if (!latest || d.getTime() > latest.getTime()) {
+      latest = d
+    }
+  }
+  return latest
+}
+
 const PROJECT_LIST_PAGE_SIZE = 5
 
 const EQUIPMENT_OPTIONS = [
@@ -85,31 +110,53 @@ const EQUIPMENT_OPTIONS = [
   'Annat fordon/maskin',
 ]
 
+type ProjectViewMode = 'create' | 'active'
+
 const ProjectLocationMap = dynamic(() => import('../components/ProjectLocationMap'), {
   ssr: false,
 })
 
 export default function CreateProjectPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const requestedProjectId = searchParams.get('projectId')
   const [user, setUser] = useState<any>(null)
   const [employees, setEmployees] = useState<Employee[]>([])
   const [customers, setCustomers] = useState<Customer[]>([])
   const [projectName, setProjectName] = useState('')
   const [address, setAddress] = useState('')
+  const [addressSuggestions, setAddressSuggestions] = useState<AddressSuggestion[]>([])
+  const [addressSuggestionsOpen, setAddressSuggestionsOpen] = useState(false)
+  const [addressSearchLoading, setAddressSearchLoading] = useState(false)
   const [latitude, setLatitude] = useState<number | null>(null)
   const [longitude, setLongitude] = useState<number | null>(null)
   const [mapCenter, setMapCenter] = useState<{ lat: number; lng: number } | null>(null)
   const [mapZoom, setMapZoom] = useState(5)
+  const [mapAddressLoading, setMapAddressLoading] = useState(false)
   const [startDate, setStartDate] = useState<Date | null>(new Date())
   const [customerId, setCustomerId] = useState('')
   const [selectedEmployees, setSelectedEmployees] = useState<string[]>([])
   const [employeeEquipment, setEmployeeEquipment] = useState<Record<string, string>>({})
   const [description, setDescription] = useState('')
   const [activeProjects, setActiveProjects] = useState<CompanyProject[]>([])
-  const [editingProjectId, setEditingProjectId] = useState<string | null>(null)
+  const [editModalOpen, setEditModalOpen] = useState(false)
+  const [editProjectId, setEditProjectId] = useState<string | null>(null)
+  const [editProjectName, setEditProjectName] = useState('')
+  const [editAddress, setEditAddress] = useState('')
+  const [editAddressSuggestions, setEditAddressSuggestions] = useState<AddressSuggestion[]>([])
+  const [editAddressSuggestionsOpen, setEditAddressSuggestionsOpen] = useState(false)
+  const [editAddressSearchLoading, setEditAddressSearchLoading] = useState(false)
+  const [editLatitude, setEditLatitude] = useState<number | null>(null)
+  const [editLongitude, setEditLongitude] = useState<number | null>(null)
+  const [editMapCenter, setEditMapCenter] = useState<{ lat: number; lng: number } | null>(null)
+  const [editMapZoom, setEditMapZoom] = useState(5)
+  const [editStartDate, setEditStartDate] = useState<Date | null>(new Date())
+  const [editCustomerId, setEditCustomerId] = useState('')
+  const [editDescription, setEditDescription] = useState('')
   const [editSelectedEmployees, setEditSelectedEmployees] = useState<string[]>([])
   const [editEmployeeEquipment, setEditEmployeeEquipment] = useState<Record<string, string>>({})
-  const [savingProjectEmployees, setSavingProjectEmployees] = useState(false)
+  const [savingProjectEdit, setSavingProjectEdit] = useState(false)
+  const [uploadingProjectImage, setUploadingProjectImage] = useState(false)
   const [adminCompletingKey, setAdminCompletingKey] = useState<string | null>(null)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
@@ -122,6 +169,12 @@ export default function CreateProjectPage() {
   /** Antal projekt att visa i listorna; utökas med «Visa fler». */
   const [ongoingProjectsVisible, setOngoingProjectsVisible] = useState(PROJECT_LIST_PAGE_SIZE)
   const [completedProjectsVisible, setCompletedProjectsVisible] = useState(PROJECT_LIST_PAGE_SIZE)
+  const [focusedProjectId, setFocusedProjectId] = useState<string | null>(null)
+  const [projectViewMode, setProjectViewMode] = useState<ProjectViewMode>('create')
+  const [activeProjectSearch, setActiveProjectSearch] = useState('')
+  const [completedProjectSearch, setCompletedProjectSearch] = useState('')
+  const [completedFilterYear, setCompletedFilterYear] = useState<number>(new Date().getFullYear())
+  const [completedFilterMonth, setCompletedFilterMonth] = useState<'ALL' | number>('ALL')
 
   const ongoingProjectsList = useMemo(() => {
     const list = activeProjects.filter(
@@ -144,6 +197,52 @@ export default function CreateProjectPage() {
       return dateValueMs(b.startDate) - dateValueMs(a.startDate)
     })
   }, [activeProjects])
+
+  const filteredOngoingProjectsList = useMemo(() => {
+    const needle = activeProjectSearch.trim().toLowerCase()
+    if (!needle) return ongoingProjectsList
+    return ongoingProjectsList.filter((project) => {
+      const employeeBlob = project.employees.map((e) => e.user.name).join(' ').toLowerCase()
+      return (
+        project.name.toLowerCase().includes(needle) ||
+        project.address.toLowerCase().includes(needle) ||
+        project.customer.name.toLowerCase().includes(needle) ||
+        employeeBlob.includes(needle)
+      )
+    })
+  }, [ongoingProjectsList, activeProjectSearch])
+
+  const completedYearOptions = useMemo(() => {
+    const years = new Set<number>()
+    for (const project of completedProjectsList) {
+      const completedDate = latestEmployeeCompletedAtDate(project)
+      if (completedDate) years.add(completedDate.getFullYear())
+    }
+    if (years.size === 0) years.add(new Date().getFullYear())
+    return Array.from(years).sort((a, b) => b - a)
+  }, [completedProjectsList])
+
+  const filteredCompletedProjectsList = useMemo(() => {
+    const needle = completedProjectSearch.trim().toLowerCase()
+    return completedProjectsList.filter((project) => {
+      const completedDate = latestEmployeeCompletedAtDate(project)
+      if (!completedDate) return false
+      if (completedDate.getFullYear() !== completedFilterYear) return false
+      if (completedFilterMonth !== 'ALL' && completedDate.getMonth() !== completedFilterMonth) return false
+      if (needle) {
+        const employeeBlob = project.employees.map((e) => e.user.name).join(' ').toLowerCase()
+        if (
+          !project.name.toLowerCase().includes(needle) &&
+          !project.address.toLowerCase().includes(needle) &&
+          !project.customer.name.toLowerCase().includes(needle) &&
+          !employeeBlob.includes(needle)
+        ) {
+          return false
+        }
+      }
+      return true
+    })
+  }, [completedProjectsList, completedFilterYear, completedFilterMonth, completedProjectSearch])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -180,29 +279,93 @@ export default function CreateProjectPage() {
   }, [router])
 
   useEffect(() => {
-    const trimmedAddress = address.trim()
-    if (trimmedAddress.length < 6) return
+    if (!requestedProjectId || activeProjects.length === 0) return
+    const project = activeProjects.find((item) => item.id === requestedProjectId)
+    if (!project) return
+    setFocusedProjectId(requestedProjectId)
+    openEditProject(project)
+    const element = document.getElementById(`project-card-${requestedProjectId}`)
+    if (element) {
+      element.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- open when deep-linking
+  }, [requestedProjectId, activeProjects])
+
+  useEffect(() => {
+    setOngoingProjectsVisible(PROJECT_LIST_PAGE_SIZE)
+  }, [activeProjectSearch])
+
+  useEffect(() => {
+    setCompletedProjectsVisible(PROJECT_LIST_PAGE_SIZE)
+  }, [completedFilterYear, completedFilterMonth, completedProjectSearch])
+
+  useEffect(() => {
+    if (!completedYearOptions.includes(completedFilterYear)) {
+      setCompletedFilterYear(completedYearOptions[0] ?? new Date().getFullYear())
+    }
+  }, [completedYearOptions, completedFilterYear])
+
+  useEffect(() => {
+    if (!editModalOpen) return
+    const trimmedAddress = editAddress.trim()
+    if (trimmedAddress.length < 3) {
+      setEditAddressSuggestions([])
+      setEditAddressSuggestionsOpen(false)
+      return
+    }
 
     const timer = setTimeout(async () => {
       try {
+        setEditAddressSearchLoading(true)
         const query = encodeURIComponent(`${trimmedAddress}, Sverige`)
         const response = await fetch(
-          `https://nominatim.openstreetmap.org/search?format=json&q=${query}&limit=1`
+          `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&countrycodes=se&q=${query}&limit=6`
         )
-        if (!response.ok) return
-        const data = await response.json()
-        if (!Array.isArray(data) || data.length === 0) return
+        if (!response.ok) {
+          setEditAddressSuggestions([])
+          return
+        }
+        const data = (await response.json()) as AddressSuggestion[]
+        const suggestions = Array.isArray(data) ? data : []
+        setEditAddressSuggestions(suggestions)
+        setEditAddressSuggestionsOpen(suggestions.length > 0)
+      } catch (error) {
+        console.error('Kunde inte geokoda adress i redigering:', error)
+      } finally {
+        setEditAddressSearchLoading(false)
+      }
+    }, 900)
 
-        const lat = Number(data[0].lat)
-        const lng = Number(data[0].lon)
-        if (Number.isNaN(lat) || Number.isNaN(lng)) return
+    return () => clearTimeout(timer)
+  }, [editAddress, editModalOpen])
 
-        setMapCenter({ lat, lng })
-        setMapZoom(14)
-        setLatitude(lat)
-        setLongitude(lng)
+  useEffect(() => {
+    const trimmedAddress = address.trim()
+    if (trimmedAddress.length < 3) {
+      setAddressSuggestions([])
+      setAddressSuggestionsOpen(false)
+      return
+    }
+
+    const timer = setTimeout(async () => {
+      try {
+        setAddressSearchLoading(true)
+        const query = encodeURIComponent(`${trimmedAddress}, Sverige`)
+        const response = await fetch(
+          `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&countrycodes=se&q=${query}&limit=6`
+        )
+        if (!response.ok) {
+          setAddressSuggestions([])
+          return
+        }
+        const data = (await response.json()) as AddressSuggestion[]
+        const suggestions = Array.isArray(data) ? data : []
+        setAddressSuggestions(suggestions)
+        setAddressSuggestionsOpen(suggestions.length > 0)
       } catch (error) {
         console.error('Kunde inte geokoda adress:', error)
+      } finally {
+        setAddressSearchLoading(false)
       }
     }, 900)
 
@@ -248,7 +411,7 @@ export default function CreateProjectPage() {
   const fetchCustomers = async () => {
     try {
       const token = localStorage.getItem('token')
-      const response = await fetch('/api/customers', {
+      const response = await fetch('/api/customers?activeOnly=true', {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
@@ -293,8 +456,22 @@ export default function CreateProjectPage() {
     }))
   }
 
-  const startEditProjectEmployees = (project: CompanyProject) => {
-    setEditingProjectId(project.id)
+  const openEditProject = (project: CompanyProject) => {
+    setEditProjectId(project.id)
+    setEditProjectName(project.name)
+    setEditAddress(project.address)
+    setEditLatitude(project.latitude ?? null)
+    setEditLongitude(project.longitude ?? null)
+    if (project.latitude != null && project.longitude != null) {
+      setEditMapCenter({ lat: project.latitude, lng: project.longitude })
+      setEditMapZoom(14)
+    } else {
+      setEditMapCenter(null)
+      setEditMapZoom(5)
+    }
+    setEditStartDate(new Date(project.startDate))
+    setEditCustomerId(project.customer.id)
+    setEditDescription(project.description || '')
     setEditSelectedEmployees(project.employees.map((employee) => employee.user.id))
     setEditEmployeeEquipment(
       project.employees.reduce((acc: Record<string, string>, employee) => {
@@ -302,8 +479,29 @@ export default function CreateProjectPage() {
         return acc
       }, {})
     )
+    setEditAddressSuggestions([])
+    setEditAddressSuggestionsOpen(false)
+    setEditModalOpen(true)
     setError('')
     setSuccess('')
+  }
+
+  const closeEditProject = () => {
+    setEditModalOpen(false)
+    setEditProjectId(null)
+  }
+
+  const selectEditAddressSuggestion = (suggestion: AddressSuggestion) => {
+    const lat = Number(suggestion.lat)
+    const lng = Number(suggestion.lon)
+    setEditAddress(suggestion.display_name)
+    setEditAddressSuggestionsOpen(false)
+    if (!Number.isNaN(lat) && !Number.isNaN(lng)) {
+      setEditMapCenter({ lat, lng })
+      setEditMapZoom(16)
+      setEditLatitude(lat)
+      setEditLongitude(lng)
+    }
   }
 
   const toggleEditEmployee = (employeeId: string) => {
@@ -332,7 +530,28 @@ export default function CreateProjectPage() {
     }))
   }
 
-  const saveProjectEmployees = async (projectId: string) => {
+  const saveEditedProject = async () => {
+    if (!editProjectId) return
+    if (!editProjectName.trim()) {
+      setError('Projektnamn krävs')
+      return
+    }
+    if (!editAddress.trim()) {
+      setError('Adress krävs')
+      return
+    }
+    if (!editStartDate) {
+      setError('Startdatum krävs')
+      return
+    }
+    if (editLatitude === null || editLongitude === null) {
+      setError('Markera projektets exakta plats på kartan')
+      return
+    }
+    if (!editCustomerId) {
+      setError('Kund krävs')
+      return
+    }
     if (editSelectedEmployees.length === 0) {
       setError('Välj minst en anställd för projektet')
       return
@@ -343,8 +562,12 @@ export default function CreateProjectPage() {
       return
     }
 
+    const notifyEmployees = window.confirm(
+      'Vill du skicka e-postnotis till tilldelad personal om uppdateringen?'
+    )
+
     try {
-      setSavingProjectEmployees(true)
+      setSavingProjectEdit(true)
       setError('')
       setSuccess('')
 
@@ -354,14 +577,21 @@ export default function CreateProjectPage() {
         return
       }
 
-      const response = await fetch('/api/projects', {
-        method: 'PATCH',
+      const response = await fetch(`/api/projects/${editProjectId}`, {
+        method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          projectId,
+          name: editProjectName.trim(),
+          address: editAddress.trim(),
+          startDate: editStartDate.toISOString(),
+          customerId: editCustomerId,
+          latitude: editLatitude,
+          longitude: editLongitude,
+          description: editDescription.trim() || null,
+          notifyEmployees,
           employeeAssignments: editSelectedEmployees.map((employeeId) => ({
             employeeId,
             equipment: editEmployeeEquipment[employeeId],
@@ -371,18 +601,51 @@ export default function CreateProjectPage() {
 
       const data = await response.json()
       if (!response.ok) {
-        throw new Error(data.error || 'Kunde inte uppdatera projektpersonal')
+        throw new Error(data.error || 'Kunde inte uppdatera projekt')
       }
 
-      setSuccess('Projektpersonalen uppdaterad')
-      setEditingProjectId(null)
-      setEditSelectedEmployees([])
-      setEditEmployeeEquipment({})
+      const notifyMsg =
+        notifyEmployees && typeof data.notificationsSent === 'number'
+          ? ` Notis skickad till ${data.notificationsSent} mottagare.`
+          : ''
+      setSuccess(`Projekt uppdaterat.${notifyMsg}`)
+      closeEditProject()
       fetchActiveProjects()
+      setTimeout(() => setSuccess(''), 4000)
     } catch (err: any) {
       setError(err.message || 'Något gick fel')
     } finally {
-      setSavingProjectEmployees(false)
+      setSavingProjectEdit(false)
+    }
+  }
+
+  const uploadProjectImage = async (file: File) => {
+    if (!editProjectId) return
+    try {
+      setUploadingProjectImage(true)
+      setError('')
+      const token = localStorage.getItem('token')
+      if (!token) {
+        window.location.href = '/login'
+        return
+      }
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('projectId', editProjectId)
+      const response = await fetch('/api/project-attachments', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error || 'Kunde inte ladda upp bild')
+      await fetchActiveProjects()
+      setSuccess('Bild uppladdad till projektet')
+      setTimeout(() => setSuccess(''), 2600)
+    } catch (err: any) {
+      setError(err.message || 'Kunde inte ladda upp bild')
+    } finally {
+      setUploadingProjectImage(false)
     }
   }
 
@@ -536,6 +799,55 @@ export default function CreateProjectPage() {
     router.push('/login')
   }
 
+  const selectAddressSuggestion = (suggestion: AddressSuggestion) => {
+    const lat = Number(suggestion.lat)
+    const lng = Number(suggestion.lon)
+    setAddress(suggestion.display_name)
+    setAddressSuggestionsOpen(false)
+    if (!Number.isNaN(lat) && !Number.isNaN(lng)) {
+      setMapCenter({ lat, lng })
+      setMapZoom(16)
+      setLatitude(lat)
+      setLongitude(lng)
+    }
+  }
+
+  const applyMapLocation = async (
+    { lat, lng }: { lat: number; lng: number },
+    target: 'create' | 'edit'
+  ) => {
+    if (target === 'create') {
+      setMapCenter({ lat, lng })
+      setMapZoom(14)
+      setLatitude(lat)
+      setLongitude(lng)
+    } else {
+      setEditMapCenter({ lat, lng })
+      setEditMapZoom(14)
+      setEditLatitude(lat)
+      setEditLongitude(lng)
+    }
+
+    setMapAddressLoading(true)
+    try {
+      const label = await reverseGeocode(lat, lng)
+      if (!label) return
+      if (target === 'create') {
+        setAddress(label)
+        setAddressSuggestions([])
+        setAddressSuggestionsOpen(false)
+      } else {
+        setEditAddress(label)
+        setEditAddressSuggestions([])
+        setEditAddressSuggestionsOpen(false)
+      }
+    } catch (error) {
+      console.error('Kunde inte slå upp adress från karta:', error)
+    } finally {
+      setMapAddressLoading(false)
+    }
+  }
+
   const adminCompleteEmployeeAssignment = async (
     projectId: string,
     userId: string,
@@ -575,6 +887,45 @@ export default function CreateProjectPage() {
     }
   }
 
+  const adminReopenEmployeeAssignment = async (
+    projectId: string,
+    userId: string,
+    employeeName: string
+  ) => {
+    if (
+      !window.confirm(
+        `Öppna upp projektet igen för ${employeeName}? Projektet flyttas tillbaka till aktiva projekt för personen och de kan markera slutfört på nytt vid behov.`
+      )
+    ) {
+      return
+    }
+    const rowKey = `${projectId}-${userId}`
+    setAdminCompletingKey(rowKey)
+    setError('')
+    try {
+      const token = localStorage.getItem('token')
+      const response = await fetch('/api/admin/projects/reopen-assignment', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ projectId, userId }),
+      })
+      const data = await response.json()
+      if (!response.ok) {
+        throw new Error(data.error || 'Kunde inte öppna upp projektet')
+      }
+      await fetchActiveProjects()
+      setSuccess(`Projektet är öppnat igen för ${employeeName}.`)
+      setTimeout(() => setSuccess(''), 3200)
+    } catch (err: any) {
+      setError(err.message || 'Kunde inte öppna upp projektet')
+    } finally {
+      setAdminCompletingKey(null)
+    }
+  }
+
   if (!user) {
     return <div className="p-8">Laddar...</div>
   }
@@ -600,6 +951,34 @@ export default function CreateProjectPage() {
         </div>
       </div>
 
+      <div className="mb-6 flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() => setProjectViewMode('create')}
+          className={`px-4 py-2 rounded-md text-sm font-medium border ${
+            projectViewMode === 'create'
+              ? 'text-white border-transparent'
+              : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
+          }`}
+          style={projectViewMode === 'create' ? { backgroundColor: '#2D5016' } : undefined}
+        >
+          Skapa projekt
+        </button>
+        <button
+          type="button"
+          onClick={() => setProjectViewMode('active')}
+          className={`px-4 py-2 rounded-md text-sm font-medium border ${
+            projectViewMode === 'active'
+              ? 'text-white border-transparent'
+              : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
+          }`}
+          style={projectViewMode === 'active' ? { backgroundColor: '#2D5016' } : undefined}
+        >
+          Aktiva projekt
+        </button>
+      </div>
+
+      {projectViewMode === 'create' && (
       <div className="bg-white shadow rounded-lg p-6">
         <h2 className="text-xl font-semibold mb-4">Nytt projekt</h2>
         
@@ -630,7 +1009,7 @@ export default function CreateProjectPage() {
             />
           </div>
 
-          <div>
+          <div className="relative z-[1200]">
             <label htmlFor="address" className="block text-sm font-medium text-gray-700 mb-1">
               Adress *
             </label>
@@ -640,12 +1019,44 @@ export default function CreateProjectPage() {
               required
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-primary-500 focus:border-primary-500"
               value={address}
-              onChange={(e) => setAddress(e.target.value)}
-              placeholder="T.ex. Storgatan 123, 123 45 Stockholm"
+              onChange={(e) => {
+                setAddress(e.target.value)
+                setLatitude(null)
+                setLongitude(null)
+                setAddressSuggestionsOpen(true)
+              }}
+              onFocus={() => {
+                if (addressSuggestions.length > 0) setAddressSuggestionsOpen(true)
+              }}
+              onBlur={() => window.setTimeout(() => setAddressSuggestionsOpen(false), 150)}
+              placeholder="T.ex. Vinterstigen, Stockholm"
             />
+            {addressSearchLoading && (
+              <p className="mt-1 text-xs text-gray-500">Söker adresser...</p>
+            )}
+            {addressSuggestionsOpen && addressSuggestions.length > 0 && (
+              <div
+                className="absolute z-[1200] mt-1 max-h-72 w-full overflow-y-auto rounded-md border border-gray-300 bg-white shadow-lg"
+                onMouseDown={(event) => event.preventDefault()}
+              >
+                {addressSuggestions.map((suggestion) => (
+                  <button
+                    key={`${suggestion.lat}-${suggestion.lon}-${suggestion.display_name}`}
+                    type="button"
+                    onClick={() => selectAddressSuggestion(suggestion)}
+                    className="block w-full px-3 py-2 text-left text-sm hover:bg-green-50"
+                  >
+                    {suggestion.display_name}
+                  </button>
+                ))}
+              </div>
+            )}
+            <p className="mt-1 text-xs text-gray-500">
+              Börja skriva, t.ex. “Vinterstigen”, och välj rätt adress i listan.
+            </p>
           </div>
 
-          <div>
+          <div className="relative z-0">
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Projektplats på karta *
             </label>
@@ -654,16 +1065,15 @@ export default function CreateProjectPage() {
               longitude={longitude}
               mapCenter={mapCenter}
               zoom={mapZoom}
-              onChange={({ lat, lng }) => {
-                setMapCenter({ lat, lng })
-                setMapZoom(14)
-                setLatitude(lat)
-                setLongitude(lng)
-              }}
+              onChange={(coords) => applyMapLocation(coords, 'create')}
             />
+            {mapAddressLoading && (
+              <p className="text-xs text-gray-500 mt-2">Hämtar adress från kartplats...</p>
+            )}
             <p className="text-xs text-gray-500 mt-2">
-              Klicka på kartan för att markera exakt plats. Välj «Flygfoto (hus och terräng)» om du vill se
-              byggnader och tomt på riktigt; «Vägkarta» för en klassisk kartvy.
+              Klicka på kartan för att markera plats – adressen fylls i automatiskt ovan. Välj «Flygfoto
+              (hus och terräng)» om du vill se byggnader och tomt på riktigt; «Vägkarta» för en klassisk
+              kartvy.
             </p>
             {latitude !== null && longitude !== null && (
               <p className="text-xs text-gray-600 mt-1">
@@ -839,19 +1249,37 @@ export default function CreateProjectPage() {
           </button>
         </form>
       </div>
+      )}
 
+      {projectViewMode === 'active' && (
       <div className="bg-white shadow rounded-lg p-6 mt-8">
         <h2 className="text-xl font-semibold mb-4">Pågående projekt</h2>
         <p className="text-sm text-gray-600 mb-4">
           Om personal glömt att avsluta sitt pågående projekt kan du markera tilldelningen som slutförd här
-          (samma som på deras sida «Mina projekt»).
+          (samma som på deras sida «Mina projekt»). Expandera «Arbetade timmar och projektbilder» för
+          godkända timmar, utkast och vem som har utkast kvar.
         </p>
-        {ongoingProjectsList.length === 0 ? (
+        <div className="mb-4">
+          <input
+            type="text"
+            value={activeProjectSearch}
+            onChange={(e) => setActiveProjectSearch(e.target.value)}
+            placeholder="Sök aktivt projekt (namn, kund, adress, personal)..."
+            className="w-full max-w-xl px-3 py-2 border border-gray-300 rounded-md"
+          />
+        </div>
+        {filteredOngoingProjectsList.length === 0 ? (
           <p className="text-sm text-gray-500">Inga pågående projekt just nu.</p>
         ) : (
           <div className="space-y-4">
-            {ongoingProjectsList.slice(0, ongoingProjectsVisible).map((project) => (
-              <div key={project.id} className="border-2 border-gray-400 rounded-md p-4">
+            {filteredOngoingProjectsList.slice(0, ongoingProjectsVisible).map((project) => (
+              <div
+                id={`project-card-${project.id}`}
+                key={project.id}
+                className={`border-2 rounded-md p-4 ${
+                  focusedProjectId === project.id ? 'border-green-700 bg-green-50/40' : 'border-gray-400'
+                }`}
+              >
                 <div className="flex items-center justify-between gap-3">
                   <h3 className="text-lg font-semibold text-gray-900">{project.name}</h3>
                   <div className="flex items-center gap-2">
@@ -860,7 +1288,7 @@ export default function CreateProjectPage() {
                     </span>
                     <button
                       type="button"
-                      onClick={() => startEditProjectEmployees(project)}
+                      onClick={() => openEditProject(project)}
                       className="text-xs font-medium px-2 py-1 rounded bg-blue-100 text-blue-800 hover:bg-blue-200"
                     >
                       Redigera projekt
@@ -876,12 +1304,18 @@ export default function CreateProjectPage() {
                 <p className="text-sm text-gray-600">
                   <strong>Startdatum:</strong> {new Date(project.startDate).toLocaleDateString('sv-SE')}
                 </p>
+                {(project.attachments?.length ?? 0) > 0 ? (
+                  <p className="text-sm text-gray-600">
+                    <strong>Bilder:</strong> {project.attachments?.length}
+                  </p>
+                ) : null}
                 <div className="text-sm text-gray-600 mt-1">
                   <strong>Personal:</strong>
                   <ul className="mt-2 space-y-2 list-none">
                     {project.employees.map((employee) => {
                       const rowKey = `${project.id}-${employee.user.id}`
                       const showAdminComplete = !employee.completed && employee.accepted
+                      const showAdminReopen = employee.completed
                       return (
                         <li
                           key={employee.id}
@@ -914,6 +1348,21 @@ export default function CreateProjectPage() {
                             >
                               {adminCompletingKey === rowKey ? 'Sparar...' : 'Slutför åt personal'}
                             </button>
+                          ) : showAdminReopen ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                adminReopenEmployeeAssignment(
+                                  project.id,
+                                  employee.user.id,
+                                  employee.user.name
+                                )
+                              }
+                              disabled={adminCompletingKey === rowKey}
+                              className="shrink-0 text-xs font-medium px-2 py-1 rounded border border-amber-700 text-amber-950 bg-amber-50 hover:bg-amber-100 disabled:opacity-50"
+                            >
+                              {adminCompletingKey === rowKey ? 'Sparar...' : 'Öppna upp igen'}
+                            </button>
                           ) : null}
                         </li>
                       )
@@ -921,82 +1370,34 @@ export default function CreateProjectPage() {
                   </ul>
                 </div>
 
-                {editingProjectId === project.id && (
-                  <div className="mt-4 border-t pt-4">
-                    <p className="text-sm font-medium text-gray-700 mb-2">Byt ut eller lägg till personal på projektet</p>
-                    <div className="space-y-2 max-h-52 overflow-y-auto border border-gray-200 rounded-md p-3">
-                      {employees.map((employee) => (
-                        <label
-                          key={employee.id}
-                          className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 p-2 rounded hover:bg-gray-50"
-                        >
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="checkbox"
-                              checked={editSelectedEmployees.includes(employee.id)}
-                              onChange={() => toggleEditEmployee(employee.id)}
-                              className="w-4 h-4"
-                            />
-                            <span className="text-sm">{employee.name}</span>
-                          </div>
-                          {editSelectedEmployees.includes(employee.id) && (
-                            <select
-                              value={editEmployeeEquipment[employee.id] || EQUIPMENT_OPTIONS[0]}
-                              onChange={(e) => setEditEquipment(employee.id, e.target.value)}
-                              className="px-3 py-1 border border-gray-300 rounded-md text-sm"
-                            >
-                              {EQUIPMENT_OPTIONS.map((option) => (
-                                <option key={option} value={option}>
-                                  {option}
-                                </option>
-                              ))}
-                            </select>
-                          )}
-                        </label>
-                      ))}
-                    </div>
-                    <div className="mt-3 flex gap-2">
-                      <button
-                        type="button"
-                        onClick={() => saveProjectEmployees(project.id)}
-                        disabled={savingProjectEmployees}
-                        className="px-3 py-2 rounded-md text-white disabled:opacity-50"
-                        style={{ backgroundColor: '#2D5016' }}
-                      >
-                        {savingProjectEmployees ? 'Sparar...' : 'Spara ändringar'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setEditingProjectId(null)
-                          setEditSelectedEmployees([])
-                          setEditEmployeeEquipment({})
-                        }}
-                        className="px-3 py-2 rounded-md border border-gray-300"
-                      >
-                        Avbryt
-                      </button>
-                    </div>
-                  </div>
-                )}
+                <details className="mt-4 rounded-lg border border-slate-200 bg-slate-50/50 open:bg-white">
+                  <summary className="cursor-pointer px-3 py-2.5 text-sm font-medium text-green-900 list-none [&::-webkit-details-marker]:hidden flex items-center justify-between gap-2">
+                    <span>Arbetade timmar och projektbilder</span>
+                    <span className="text-xs font-normal text-slate-500 group-open:hidden">Visa</span>
+                  </summary>
+                  <RelatedProjectTimeReportsPanel
+                    projectId={project.id}
+                    fallbackAttachments={project.attachments}
+                  />
+                </details>
               </div>
             ))}
-            {ongoingProjectsList.length > ongoingProjectsVisible ? (
+            {filteredOngoingProjectsList.length > ongoingProjectsVisible ? (
               <div className="pt-2 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-gray-100">
                 <button
                   type="button"
                   className="text-sm font-medium text-primary-600 hover:text-primary-800 underline underline-offset-2"
                   onClick={() =>
                     setOngoingProjectsVisible((n) =>
-                      Math.min(n + PROJECT_LIST_PAGE_SIZE, ongoingProjectsList.length)
+                      Math.min(n + PROJECT_LIST_PAGE_SIZE, filteredOngoingProjectsList.length)
                     )
                   }
                 >
-                  Visa fler — {ongoingProjectsList.length - ongoingProjectsVisible} kvar
+                  Visa fler — {filteredOngoingProjectsList.length - ongoingProjectsVisible} kvar
                 </button>
               </div>
             ) : null}
-            {ongoingProjectsVisible > PROJECT_LIST_PAGE_SIZE && ongoingProjectsList.length > PROJECT_LIST_PAGE_SIZE ? (
+            {ongoingProjectsVisible > PROJECT_LIST_PAGE_SIZE && filteredOngoingProjectsList.length > PROJECT_LIST_PAGE_SIZE ? (
               <div className="pt-2">
                 <button
                   type="button"
@@ -1010,28 +1411,86 @@ export default function CreateProjectPage() {
           </div>
         )}
       </div>
+      )}
 
+      {projectViewMode === 'active' && (
       <div className="bg-white shadow rounded-lg p-6 mt-8">
         <h2 className="text-xl font-semibold mb-2">Avslutade projekt</h2>
         <p className="text-sm text-gray-600 mb-4">
-          Klicka på ett projekt för att visa plats, information och vilka som slutfört. Öppnar du ett projekt
-          hämtas också en genväg med personalens tidrapporter som matchar projektperioden och kunden.
+          Klicka på ett projekt för plats, bilder, godkända timmar, utkast (och vem som har kvar i utkast) samt
+          vilka som slutfört. Tidrapporterna matchas mot projektperioden, kunden och tilldelad personal.
         </p>
-        {completedProjectsList.length === 0 ? (
+        <div className="mb-4 flex flex-col sm:flex-row sm:flex-wrap gap-3 sm:items-end">
+          <div className="w-full sm:flex-1 sm:min-w-[240px]">
+            <label className="block text-xs text-gray-500 mb-1">Sök</label>
+            <input
+              type="search"
+              value={completedProjectSearch}
+              onChange={(e) => setCompletedProjectSearch(e.target.value)}
+              placeholder="Sök namn, kund, adress eller personal..."
+              className="w-full max-w-xl px-3 py-2 border border-gray-300 rounded-md"
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">År</label>
+            <select
+              value={completedFilterYear}
+              onChange={(e) => setCompletedFilterYear(Number(e.target.value))}
+              className="px-3 py-2 border border-gray-300 rounded-md bg-white"
+            >
+              {completedYearOptions.map((year) => (
+                <option key={`completed-year-${year}`} value={year}>
+                  {year}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Månad</label>
+            <select
+              value={String(completedFilterMonth)}
+              onChange={(e) =>
+                setCompletedFilterMonth(e.target.value === 'ALL' ? 'ALL' : Number(e.target.value))
+              }
+              className="px-3 py-2 border border-gray-300 rounded-md bg-white"
+            >
+              <option value="ALL">Alla månader</option>
+              {Array.from({ length: 12 }, (_, idx) => (
+                <option key={`completed-month-${idx}`} value={idx}>
+                  {new Intl.DateTimeFormat('sv-SE', { month: 'long' }).format(new Date(2026, idx, 1))}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+        {filteredCompletedProjectsList.length === 0 ? (
           <p className="text-sm text-gray-500">Inga avslutade projekt ännu.</p>
         ) : (
           <div className="space-y-3">
-            {completedProjectsList.slice(0, completedProjectsVisible).map((project) => (
+            {filteredCompletedProjectsList.slice(0, completedProjectsVisible).map((project) => (
                 <details
+                  id={`project-card-${project.id}`}
                   key={project.id}
-                  className="group border border-emerald-300 rounded-lg bg-emerald-50/50 open:bg-white open:border-gray-300"
+                  className={`group border rounded-lg open:bg-white ${
+                    focusedProjectId === project.id
+                      ? 'border-green-700 bg-green-50/40 open:border-green-700'
+                      : 'border-emerald-300 bg-emerald-50/50 open:border-gray-300'
+                  }`}
                   onToggle={(e) => {
                     const open = e.currentTarget.open
                     setCompletedProjectDetailsOpen((prev) => ({ ...prev, [project.id]: open }))
                   }}
                 >
                   <summary className="cursor-pointer px-4 py-3 flex flex-wrap items-center justify-between gap-2 list-none [&::-webkit-details-marker]:hidden">
-                    <span className="font-semibold text-gray-900 text-lg">{project.name}</span>
+                    <span className="min-w-0">
+                      <span className="font-semibold text-gray-900 text-lg block">{project.name}</span>
+                      {latestEmployeeCompletedAtDate(project) ? (
+                        <span className="text-xs text-emerald-900 mt-0.5 block">
+                          Senast slutfört:{' '}
+                          {formatDateTimeSv(latestEmployeeCompletedAtDate(project)!.toISOString())}
+                        </span>
+                      ) : null}
+                    </span>
                     <span className="flex items-center gap-2 shrink-0">
                       <span className="text-xs font-medium px-2 py-1 rounded bg-emerald-700 text-white">
                         Avslutat
@@ -1144,6 +1603,27 @@ export default function CreateProjectPage() {
                                     : 'Slutför åt personal'}
                                 </button>
                               </div>
+                            ) : employee.completed ? (
+                              <div className="mt-2">
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.preventDefault()
+                                    e.stopPropagation()
+                                    adminReopenEmployeeAssignment(
+                                      project.id,
+                                      employee.user.id,
+                                      employee.user.name
+                                    )
+                                  }}
+                                  disabled={adminCompletingKey === `${project.id}-${employee.user.id}`}
+                                  className="text-xs font-medium px-2 py-1 rounded border border-amber-700 text-amber-950 bg-amber-50 hover:bg-amber-100 disabled:opacity-50"
+                                >
+                                  {adminCompletingKey === `${project.id}-${employee.user.id}`
+                                    ? 'Sparar...'
+                                    : 'Öppna upp igen för personal'}
+                                </button>
+                              </div>
                             ) : null}
                           </li>
                         ))}
@@ -1151,28 +1631,31 @@ export default function CreateProjectPage() {
                     </div>
 
                     {completedProjectDetailsOpen[project.id] ? (
-                      <RelatedProjectTimeReportsPanel projectId={project.id} />
+                      <RelatedProjectTimeReportsPanel
+                        projectId={project.id}
+                        fallbackAttachments={project.attachments}
+                      />
                     ) : null}
                   </div>
                 </details>
               ))}
-            {completedProjectsList.length > completedProjectsVisible ? (
+            {filteredCompletedProjectsList.length > completedProjectsVisible ? (
               <div className="pt-3 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-emerald-100">
                 <button
                   type="button"
                   className="text-sm font-medium text-primary-600 hover:text-primary-800 underline underline-offset-2"
                   onClick={() =>
                     setCompletedProjectsVisible((n) =>
-                      Math.min(n + PROJECT_LIST_PAGE_SIZE, completedProjectsList.length)
+                      Math.min(n + PROJECT_LIST_PAGE_SIZE, filteredCompletedProjectsList.length)
                     )
                   }
                 >
-                  Visa fler — {completedProjectsList.length - completedProjectsVisible} kvar
+                  Visa fler — {filteredCompletedProjectsList.length - completedProjectsVisible} kvar
                 </button>
               </div>
             ) : null}
             {completedProjectsVisible > PROJECT_LIST_PAGE_SIZE &&
-            completedProjectsList.length > PROJECT_LIST_PAGE_SIZE ? (
+            filteredCompletedProjectsList.length > PROJECT_LIST_PAGE_SIZE ? (
               <div className="pt-2">
                 <button
                   type="button"
@@ -1186,6 +1669,211 @@ export default function CreateProjectPage() {
           </div>
         )}
       </div>
+      )}
+
+      {editModalOpen && (
+        <div className="fixed inset-0 z-[2000] bg-black/45 flex items-start justify-center p-4 overflow-y-auto">
+          <div className="w-full max-w-4xl bg-white rounded-xl shadow-2xl border border-gray-200 my-6">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+              <div>
+                <h2 className="text-2xl font-semibold text-gray-900">Redigera projekt</h2>
+                <p className="text-sm text-gray-600 mt-1">Uppdatera all projektinformation och tilldelad personal.</p>
+              </div>
+              <button
+                type="button"
+                onClick={closeEditProject}
+                className="text-gray-500 hover:text-gray-800 px-2 py-1 rounded-md"
+                aria-label="Stäng"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-6 space-y-6 max-h-[calc(100vh-8rem)] overflow-y-auto">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Projektnamn *</label>
+                <input
+                  type="text"
+                  value={editProjectName}
+                  onChange={(e) => setEditProjectName(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                />
+              </div>
+
+              <div className="relative z-[1200]">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Adress *</label>
+                <input
+                  type="text"
+                  value={editAddress}
+                  onChange={(e) => {
+                    setEditAddress(e.target.value)
+                    setEditAddressSuggestionsOpen(true)
+                  }}
+                  onFocus={() => {
+                    if (editAddressSuggestions.length > 0) setEditAddressSuggestionsOpen(true)
+                  }}
+                  onBlur={() => window.setTimeout(() => setEditAddressSuggestionsOpen(false), 150)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                />
+                {editAddressSearchLoading && (
+                  <p className="mt-1 text-xs text-gray-500">Söker adresser...</p>
+                )}
+                {editAddressSuggestionsOpen && editAddressSuggestions.length > 0 && (
+                  <div
+                    className="absolute z-[1200] mt-1 max-h-72 w-full overflow-y-auto rounded-md border border-gray-300 bg-white shadow-lg"
+                    onMouseDown={(event) => event.preventDefault()}
+                  >
+                    {editAddressSuggestions.map((suggestion) => (
+                      <button
+                        key={`edit-${suggestion.lat}-${suggestion.lon}-${suggestion.display_name}`}
+                        type="button"
+                        onClick={() => selectEditAddressSuggestion(suggestion)}
+                        className="block w-full px-3 py-2 text-left text-sm hover:bg-green-50"
+                      >
+                        {suggestion.display_name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Projektplats på karta *</label>
+                <ProjectLocationMap
+                  latitude={editLatitude}
+                  longitude={editLongitude}
+                  mapCenter={editMapCenter}
+                  zoom={editMapZoom}
+                  onChange={(coords) => applyMapLocation(coords, 'edit')}
+                />
+                {mapAddressLoading && (
+                  <p className="text-xs text-gray-500 mt-2">Hämtar adress från kartplats...</p>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Startdatum *</label>
+                  <ModernDatePicker
+                    selected={editStartDate}
+                    onChange={(newDate) => setEditStartDate(newDate)}
+                    placeholder="Välj startdatum"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Kund *</label>
+                  <SearchableSelect
+                    options={customers}
+                    value={editCustomerId}
+                    onChange={setEditCustomerId}
+                    placeholder="Välj kund"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Nödvändig information</label>
+                <textarea
+                  rows={4}
+                  value={editDescription}
+                  onChange={(e) => setEditDescription(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  placeholder="Beskrivning och övrig information..."
+                />
+              </div>
+
+              <div>
+                <p className="text-sm font-medium text-gray-700 mb-2">Tilldelad personal och fordon *</p>
+                <div className="space-y-2 max-h-64 overflow-y-auto border border-gray-200 rounded-md p-3">
+                  {employees.map((employee) => (
+                    <label
+                      key={`edit-modal-${employee.id}`}
+                      className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 p-2 rounded hover:bg-gray-50"
+                    >
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={editSelectedEmployees.includes(employee.id)}
+                          onChange={() => toggleEditEmployee(employee.id)}
+                          className="w-4 h-4"
+                        />
+                        <span className="text-sm">{employee.name}</span>
+                      </div>
+                      {editSelectedEmployees.includes(employee.id) && (
+                        <select
+                          value={editEmployeeEquipment[employee.id] || EQUIPMENT_OPTIONS[0]}
+                          onChange={(e) => setEditEquipment(employee.id, e.target.value)}
+                          className="px-3 py-1 border border-gray-300 rounded-md text-sm"
+                        >
+                          {EQUIPMENT_OPTIONS.map((option) => (
+                            <option key={option} value={option}>
+                              {option}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <p className="text-sm font-medium text-gray-700 mb-2">Projektbilder</p>
+                <div className="flex items-center gap-3">
+                  <label className="px-3 py-2 rounded-md border border-gray-300 bg-white text-sm cursor-pointer hover:bg-gray-50">
+                    {uploadingProjectImage ? 'Laddar upp...' : 'Ladda upp bild'}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      disabled={uploadingProjectImage}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0]
+                        if (file) uploadProjectImage(file)
+                        e.currentTarget.value = ''
+                      }}
+                    />
+                  </label>
+                  <span className="text-xs text-gray-500">
+                    Bilderna blir synliga för admin i projektet.
+                  </span>
+                </div>
+                {(activeProjects.find((p) => p.id === editProjectId)?.attachments || []).length > 0 ? (
+                  <ul className="mt-3 space-y-1 text-sm text-gray-700">
+                    {(activeProjects.find((p) => p.id === editProjectId)?.attachments || []).map((att) => (
+                      <li key={att.id}>
+                        - {att.fileName}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="mt-2 text-xs text-gray-500">Inga bilder uppladdade ännu.</p>
+                )}
+              </div>
+            </div>
+
+            <div className="px-6 py-4 border-t border-gray-200 flex flex-wrap gap-2 justify-end">
+              <button
+                type="button"
+                onClick={closeEditProject}
+                className="px-4 py-2 rounded-md border border-gray-300 bg-white"
+              >
+                Avbryt
+              </button>
+              <button
+                type="button"
+                onClick={saveEditedProject}
+                disabled={savingProjectEdit}
+                className="px-4 py-2 rounded-md text-white disabled:opacity-50"
+                style={{ backgroundColor: '#2D5016' }}
+              >
+                {savingProjectEdit ? 'Sparar...' : 'Spara projekt'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

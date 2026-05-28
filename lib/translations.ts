@@ -4,6 +4,7 @@ export const translations: Record<Language, Record<string, string>> = {
   sv: {
     // Navigation
     'nav.login': 'Logga in',
+    'nav.dashboard': 'Dashboard',
     'nav.admin': 'Admin',
     'nav.timeReport': 'Tidrapportering',
     'nav.myReports': 'Mina rapporter',
@@ -251,6 +252,7 @@ export const translations: Record<Language, Record<string, string>> = {
   en: {
     // Navigation
     'nav.login': 'Log in',
+    'nav.dashboard': 'Dashboard',
     'nav.admin': 'Admin',
     'nav.timeReport': 'Time Reporting',
     'nav.myReports': 'My Reports',
@@ -498,6 +500,7 @@ export const translations: Record<Language, Record<string, string>> = {
   da: {
     // Navigation
     'nav.login': 'Log ind',
+    'nav.dashboard': 'Dashboard',
     'nav.admin': 'Admin',
     'nav.timeReport': 'Tidsrapportering',
     'nav.myReports': 'Mine rapporter',
@@ -745,6 +748,7 @@ export const translations: Record<Language, Record<string, string>> = {
   fi: {
     // Navigation
     'nav.login': 'Kirjaudu sisään',
+    'nav.dashboard': 'Dashboard',
     'nav.admin': 'Admin',
     'nav.timeReport': 'Aikaraportointi',
     'nav.myReports': 'Omat raportit',
@@ -992,6 +996,7 @@ export const translations: Record<Language, Record<string, string>> = {
   no: {
     // Navigation
     'nav.login': 'Logg inn',
+    'nav.dashboard': 'Dashboard',
     'nav.admin': 'Admin',
     'nav.timeReport': 'Timeregistrering',
     'nav.myReports': 'Mine rapporter',

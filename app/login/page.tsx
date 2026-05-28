@@ -3,6 +3,8 @@
 import { useState, useEffect, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
+import LvtechCornerLogo from '../components/LvtechCornerLogo'
+import TimeLapsHeroBrand from '../components/TimeLapsHeroBrand'
 
 function LoginForm() {
   const router = useRouter()
@@ -115,11 +117,9 @@ function LoginForm() {
         throw new Error('Kunde inte spara inloggningsdata. Kontrollera att cookies är aktiverade.')
       }
 
-      // Omdirigera baserat på roll - använd window.location för full sidladdning
-      const redirectPath = isAdminUser
-        ? '/admin' 
-        : '/time-report'
-      
+      // Alla roller (admin + personal) går till överblicken
+      const redirectPath = '/dashboard'
+
       console.log('Omdirigerar till:', redirectPath)
       window.location.href = redirectPath
     } catch (err: any) {
@@ -140,8 +140,9 @@ function LoginForm() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8" style={{ backgroundColor: '#E8E8D8' }}>
-      <div className="absolute top-6 left-6">
+    <div className="relative min-h-screen flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8" style={{ backgroundColor: '#E8E8D8' }}>
+      <LvtechCornerLogo href="/" />
+      <div className="absolute top-6 right-4 sm:right-6">
         <Link
           href="/"
           className="text-base md:text-lg font-semibold"
@@ -152,36 +153,7 @@ function LoginForm() {
       </div>
       <div className="max-w-2xl w-full space-y-10">
         <div>
-          <div className="text-center mb-8 -mt-4">
-            <div
-              className="inline-flex items-center rounded-xl border px-6 py-2 shadow-sm mb-3"
-              style={{
-                borderColor: '#2D5016',
-                background: 'linear-gradient(135deg, #F8FBF5 0%, #EEF6E8 100%)',
-              }}
-            >
-              <h1
-                className="text-6xl md:text-7xl font-semibold leading-none tracking-wide"
-                style={{
-                  color: '#2D5016',
-                  fontFamily: '"Avenir Next", "Montserrat", "Segoe UI", sans-serif',
-                  letterSpacing: '0.03em',
-                }}
-              >
-                TimeLaps
-              </h1>
-            </div>
-            <p
-              className="text-3xl md:text-4xl mt-1 font-medium tracking-wide"
-              style={{
-                color: '#2D5016',
-                fontFamily: '"Avenir Next", "Montserrat", "Segoe UI", sans-serif',
-                letterSpacing: '0.02em',
-              }}
-            >
-              Tidrapportering ska vara enkelt
-            </p>
-          </div>
+          <TimeLapsHeroBrand className="mb-8 -mt-4" />
           <h2 className="mt-6 text-center text-3xl font-extrabold" style={{ color: '#2D5016' }}>
             {userType === 'admin' ? 'Logga in som Admin' : 
              userType === 'employee' ? 'Logga in som Personal' : 

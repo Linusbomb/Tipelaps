@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { month, reportId, customerId, forUserId } = body
+    const { month, reportId, customerId, forUserId, reportIds } = body
 
     const subject = await resolveTimeReportSubject(userId, forUserId)
     if (!subject.ok) return subject.response
@@ -33,8 +33,6 @@ export async function POST(request: NextRequest) {
 
     let targetMonth = month as string | undefined
 
-    // Bakåtkompatibilitet: om frontend skickar reportId,
-    // slå upp rapportens månad och skicka in hela månaden.
     if (!targetMonth && reportId) {
       const report = await prisma.timeReport.findFirst({
         where: {
@@ -54,6 +52,51 @@ export async function POST(request: NextRequest) {
       }
 
       targetMonth = report.month
+    }
+
+    const idsFromBody = Array.isArray(reportIds)
+      ? reportIds.filter((id: unknown) => typeof id === 'string' && id.trim())
+      : []
+
+    if (idsFromBody.length > 0) {
+      const draftReports = await prisma.timeReport.findMany({
+        where: {
+          id: { in: idsFromBody },
+          userId: reportUserId,
+          status: 'DRAFT',
+        },
+        include: { customer: { select: { name: true } } },
+      })
+
+      if (draftReports.length === 0) {
+        return NextResponse.json(
+          { error: 'Inga valda utkast kunde skickas in (redan inskickade eller ogiltiga)' },
+          { status: 400 }
+        )
+      }
+
+      if (!targetMonth && draftReports[0]) {
+        targetMonth = draftReports[0].month
+      }
+
+      const updatedReports = await prisma.timeReport.updateMany({
+        where: {
+          id: { in: draftReports.map((r) => r.id) },
+          userId: reportUserId,
+          status: 'DRAFT',
+        },
+        data: {
+          status: 'SUBMITTED',
+          submittedAt: new Date(),
+        },
+      })
+
+      return NextResponse.json({
+        message: `${updatedReports.count} tidrapporter har skickats till admin`,
+        count: updatedReports.count,
+        timeReportCount: updatedReports.count,
+        absenceReportCount: 0,
+      })
     }
 
     if (!targetMonth) {
@@ -77,7 +120,18 @@ export async function POST(request: NextRequest) {
       include: { customer: { select: { name: true } } },
     })
 
-    if (draftReports.length === 0) {
+    const shouldSubmitAbsence = !(typeof customerId === 'string' && customerId.trim())
+    const draftAbsences = shouldSubmitAbsence
+      ? await prisma.$queryRaw<Array<{ id: string }>>`
+          SELECT "id"
+          FROM "AbsenceReport"
+          WHERE "userId" = ${reportUserId}
+            AND "month" = ${targetMonth}
+            AND "status" = 'DRAFT'
+        `
+      : []
+
+    if (draftReports.length === 0 && draftAbsences.length === 0) {
       const scopeHint =
         typeof customerId === 'string' && customerId.trim()
           ? ' för den valda kunden'
@@ -96,15 +150,28 @@ export async function POST(request: NextRequest) {
       },
     })
 
+    if (shouldSubmitAbsence && draftAbsences.length > 0) {
+      await prisma.$executeRaw`
+        UPDATE "AbsenceReport"
+        SET "status" = 'SUBMITTED', "submittedAt" = ${new Date()}, "updatedAt" = ${new Date()}
+        WHERE "userId" = ${reportUserId}
+          AND "month" = ${targetMonth}
+          AND "status" = 'DRAFT'
+      `
+    }
+
     const customerName = draftReports[0]?.customer?.name
     const scopeLabel =
       customerName && typeof customerId === 'string' && customerId.trim()
         ? ` för ${customerName}`
         : ''
+    const absenceLabel = draftAbsences.length > 0 ? ` och ${draftAbsences.length} frånvarorapporter` : ''
 
     return NextResponse.json({
-      message: `${updatedReports.count} tidrapporter${scopeLabel} har skickats in`,
-      count: updatedReports.count,
+      message: `${updatedReports.count} tidrapporter${scopeLabel}${absenceLabel} har skickats till admin`,
+      count: updatedReports.count + draftAbsences.length,
+      timeReportCount: updatedReports.count,
+      absenceReportCount: draftAbsences.length,
       customerName: customerName ?? null,
     })
   } catch (error: any) {

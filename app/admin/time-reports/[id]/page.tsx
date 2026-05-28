@@ -2,9 +2,11 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
+import ClockTimeInput from '@/app/components/ClockTimeInput'
 import HoursInput from '@/app/components/HoursInput'
 import OvertimeSummary from '@/app/components/OvertimeSummary'
 import { computeOvertimeHours } from '@/lib/overtime'
+import UnlockTimeReportingButton from '@/app/components/UnlockTimeReportingButton'
 
 const MACHINE_OPTIONS = [
   'Hjullastare',
@@ -23,6 +25,8 @@ type EntryRow = {
   id?: string
   hours: number
   machineHours: number | null
+  startTime: string
+  endTime: string
   machineType: string
   registrationNumber: string
   description: string
@@ -55,6 +59,8 @@ function entryFromApi(en: any): EntryRow {
     hours: Number(en.hours) || 0,
     machineHours:
       en.machineHours !== null && en.machineHours !== undefined ? Number(en.machineHours) : null,
+    startTime: en.startTime || '',
+    endTime: en.endTime || '',
     machineType,
     registrationNumber,
     description: en.description || '',
@@ -75,10 +81,13 @@ export default function AdminTimeReportDetailPage() {
   const [message, setMessage] = useState('')
 
   const [employeeName, setEmployeeName] = useState('')
+  const [employeeUserId, setEmployeeUserId] = useState('')
   const [status, setStatus] = useState('')
   const [month, setMonth] = useState('')
   const [date, setDate] = useState('')
   const [customerId, setCustomerId] = useState('')
+  const [payrollTotalHours, setPayrollTotalHours] = useState<number | null>(null)
+  const [customerTotalHours, setCustomerTotalHours] = useState<number | null>(null)
   const [missingHoursReason, setMissingHoursReason] = useState('')
   const [buyerReference, setBuyerReference] = useState('')
   const [entries, setEntries] = useState<EntryRow[]>([])
@@ -86,13 +95,14 @@ export default function AdminTimeReportDetailPage() {
   const [newCustomerName, setNewCustomerName] = useState('')
   const [creatingCustomer, setCreatingCustomer] = useState(false)
 
-  const totalHours = useMemo(() => entries.reduce((sum, e) => sum + (Number(e.hours) || 0), 0), [entries])
+  const activityTotalHours = useMemo(() => entries.reduce((sum, e) => sum + (Number(e.hours) || 0), 0), [entries])
+  const totalHours = payrollTotalHours ?? activityTotalHours
   const totalMachineHours = useMemo(
     () => entries.reduce((sum, e) => sum + (e.machineHours && e.machineHours > 0 ? e.machineHours : 0), 0),
     [entries]
   )
   const remainingHours = useMemo(() => Math.max(0, totalHours - totalMachineHours), [totalHours, totalMachineHours])
-  const overtimeHours = useMemo(() => computeOvertimeHours(totalHours), [totalHours])
+  const overtimeHours = useMemo(() => computeOvertimeHours(totalHours, entries), [totalHours, entries])
 
   useEffect(() => {
     fetchData()
@@ -113,7 +123,7 @@ export default function AdminTimeReportDetailPage() {
         fetch(`/api/admin/time-reports/${reportId}`, {
           headers: { Authorization: `Bearer ${token}` },
         }),
-        fetch('/api/customers', {
+        fetch('/api/customers?activeOnly=true', {
           headers: { Authorization: `Bearer ${token}` },
         }),
       ])
@@ -127,8 +137,19 @@ export default function AdminTimeReportDetailPage() {
       }
 
       setEmployeeName(reportData.user?.name || '')
+      setEmployeeUserId(reportData.user?.id || '')
       setStatus(reportData.status || '')
       setCustomerId(reportData.customerId || '')
+      setPayrollTotalHours(
+        typeof reportData.totalHours === 'number' ? reportData.totalHours : null
+      )
+      setCustomerTotalHours(
+        typeof reportData.customerTotalHours === 'number'
+          ? reportData.customerTotalHours
+          : typeof reportData.totalHours === 'number'
+            ? reportData.totalHours
+            : null
+      )
       setMissingHoursReason(reportData.missingHoursReason || '')
       setBuyerReference(
         typeof reportData.buyerReference === 'string' ? reportData.buyerReference : ''
@@ -141,7 +162,7 @@ export default function AdminTimeReportDetailPage() {
       setEntries(
         rows.length > 0
           ? rows
-          : [{ hours: 0, machineHours: null, machineType: '', registrationNumber: '', description: '', location: '', referenceNumber: '' }]
+          : [{ hours: 0, machineHours: null, startTime: '', endTime: '', machineType: '', registrationNumber: '', description: '', location: '', referenceNumber: '' }]
       )
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Något gick fel')
@@ -164,6 +185,8 @@ export default function AdminTimeReportDetailPage() {
       {
         hours: 0,
         machineHours: null,
+        startTime: '',
+        endTime: '',
         machineType: '',
         registrationNumber: '',
         description: '',
@@ -218,11 +241,15 @@ export default function AdminTimeReportDetailPage() {
         body: JSON.stringify({
           date,
           customerId,
+          payrollTotalHours: totalHours,
+          customerTotalHours: customerTotalHours ?? totalHours,
           missingHoursReason: remainingHours > 0 ? missingHoursReason : null,
           buyerReference: buyerReference.trim() || null,
           entries: entries.map((e) => ({
             hours: e.hours,
             machineHours: e.machineHours,
+            startTime: e.startTime,
+            endTime: e.endTime,
             machineType: e.machineType,
             registrationNumber: e.registrationNumber,
             description: e.description,
@@ -236,6 +263,10 @@ export default function AdminTimeReportDetailPage() {
       if (!response.ok) throw new Error(data.error || 'Kunde inte spara tidrapport')
       setMessage('Tidrapport uppdaterad')
       setStatus(data.status || status)
+      setPayrollTotalHours(typeof data.totalHours === 'number' ? data.totalHours : totalHours)
+      setCustomerTotalHours(
+        typeof data.customerTotalHours === 'number' ? data.customerTotalHours : customerTotalHours
+      )
       if (data.month) setMonth(data.month)
       if (data.entries) setEntries((data.entries as any[]).map(entryFromApi))
     } catch (err: unknown) {
@@ -289,7 +320,7 @@ export default function AdminTimeReportDetailPage() {
         return
       }
 
-      const response = await fetch('/api/customers', {
+      const response = await fetch('/api/customers?activeOnly=true', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -403,7 +434,12 @@ export default function AdminTimeReportDetailPage() {
         </div>
 
         <div className="mb-6 p-4 bg-gray-50 border border-gray-200 rounded-md space-y-1">
-          <p className="text-lg font-semibold text-gray-900">Totalt arbetstid: {totalHours.toFixed(1)} timmar</p>
+          <p className="text-lg font-semibold text-gray-900">
+            Lönetid anställd: {totalHours.toFixed(1)} timmar
+          </p>
+          <p className="text-sm text-gray-700">
+            Debiterbar tid kund: {(customerTotalHours ?? totalHours).toFixed(1)} timmar
+          </p>
           <p className="text-sm text-gray-700">Totalt fordonstid: {totalMachineHours.toFixed(1)} timmar</p>
           <OvertimeSummary overtimeHours={overtimeHours} />
           {remainingHours > 0 ? (
@@ -423,6 +459,40 @@ export default function AdminTimeReportDetailPage() {
           )}
         </div>
 
+        <div className="mb-6 rounded-lg border border-blue-200 bg-blue-50 p-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-semibold text-blue-950 mb-1">
+                Lönetid anställd
+              </label>
+              <HoursInput
+                value={totalHours}
+                onChange={(hours) => setPayrollTotalHours(hours ?? activityTotalHours)}
+                className="w-full px-3 py-2 border border-blue-200 rounded-md bg-white"
+              />
+              <p className="mt-2 text-xs text-blue-900">
+                Detta används för lön, övertid och lönestatistik.
+              </p>
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-blue-950 mb-1">
+                Debiterbar tid kund
+              </label>
+              <HoursInput
+                value={customerTotalHours ?? totalHours}
+                onChange={(hours) => setCustomerTotalHours(hours ?? totalHours)}
+                className="w-full px-3 py-2 border border-blue-200 rounded-md bg-white"
+              />
+              <p className="mt-2 text-xs text-blue-900">
+                Detta används för kund/export och påverkar inte lönetiden.
+              </p>
+            </div>
+          </div>
+          <p className="mt-2 text-xs text-blue-900">
+            Aktivitetsradernas summa är {activityTotalHours.toFixed(1)} h. Du kan justera lönetid och debiterbar tid separat.
+          </p>
+        </div>
+
         <div className="mb-6">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-xl font-semibold" style={{ color: '#2D5016' }}>
@@ -435,6 +505,24 @@ export default function AdminTimeReportDetailPage() {
           <div className="space-y-4">
             {entries.map((entry, index) => (
               <div key={entry.id || index} className="p-4 border border-gray-200 rounded-md">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Starttid</label>
+                    <ClockTimeInput
+                      value={entry.startTime}
+                      onChange={(value) => updateEntry(index, { startTime: value })}
+                      className="w-full px-3 py-2 border rounded-md"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Sluttid</label>
+                    <ClockTimeInput
+                      value={entry.endTime}
+                      onChange={(value) => updateEntry(index, { endTime: value })}
+                      className="w-full px-3 py-2 border rounded-md"
+                    />
+                  </div>
+                </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
                   <div>
                     <label className="block text-xs font-medium text-gray-600 mb-1">Timmar (arbete)</label>
@@ -528,7 +616,10 @@ export default function AdminTimeReportDetailPage() {
 
           <div className="mt-4 p-4 bg-gray-50 border border-gray-200 rounded-md space-y-1">
             <p className="text-lg font-semibold text-gray-900">
-              Totalt arbetstid: {totalHours.toFixed(1)} timmar
+              Lönetid anställd: {totalHours.toFixed(1)} timmar
+            </p>
+            <p className="text-sm text-gray-700">
+              Debiterbar tid kund: {(customerTotalHours ?? totalHours).toFixed(1)} timmar
             </p>
             <p className="text-sm text-gray-700">
               Totalt fordonstid: {totalMachineHours.toFixed(1)} timmar
@@ -556,7 +647,7 @@ export default function AdminTimeReportDetailPage() {
           </div>
         )}
 
-        <div className="flex flex-wrap gap-3 pt-4 border-t border-gray-200">
+        <div className="flex flex-wrap gap-3 items-center pt-4 border-t border-gray-200">
           <button
             onClick={saveReport}
             disabled={saving}
@@ -565,13 +656,26 @@ export default function AdminTimeReportDetailPage() {
           >
             {saving ? 'Sparar...' : 'Spara ändringar'}
           </button>
-          <button
-            onClick={approveReport}
-            disabled={approving}
-            className="px-4 py-2 rounded-md border border-green-700 text-green-800 hover:bg-green-50 disabled:opacity-50"
-          >
-            {approving ? 'Godkänner...' : 'Godkänn tidrapport'}
-          </button>
+          {status === 'SUBMITTED' && (
+            <button
+              onClick={approveReport}
+              disabled={approving}
+              className="px-4 py-2 rounded-md border border-green-700 text-green-800 hover:bg-green-50 disabled:opacity-50"
+            >
+              {approving ? 'Godkänner...' : 'Godkänn tidrapport'}
+            </button>
+          )}
+          {employeeUserId &&
+            (status === 'SUBMITTED' || status === 'APPROVED') && (
+              <UnlockTimeReportingButton
+                userId={employeeUserId}
+                reportIds={[reportId]}
+                onUnlocked={() => {
+                  setStatus('DRAFT')
+                  setMessage('Tidrapporten är upplåst. Personalen kan komplettera och skicka in igen.')
+                }}
+              />
+            )}
         </div>
       </div>
     </div>

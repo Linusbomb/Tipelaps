@@ -140,6 +140,7 @@ export async function GET(request: NextRequest) {
 
         const reportDate = format(new Date(report.date), 'd MMMM yyyy', { locale: sv })
         const totalHours = report.entries.reduce((sum: number, entry: any) => sum + entry.hours, 0)
+        const billableHours = report.customerTotalHours ?? totalHours
         const totalMachineHoursPdf = report.entries.reduce(
           (sum: number, entry: any) =>
             sum + (entry.machineHours && entry.machineHours > 0 ? entry.machineHours : 0),
@@ -158,12 +159,14 @@ export async function GET(request: NextRequest) {
           doc.text(`Beställarens ref: ${String(report.buyerReference).trim()}`, margin, yPosition)
           yPosition += lineHeight
         }
-        doc.text(`Totalt timmar: ${totalHours.toFixed(1)}h`, margin, yPosition)
+        doc.text(`Lönetid: ${totalHours.toFixed(1)}h`, margin, yPosition)
+        yPosition += lineHeight
+        doc.text(`Debiterbar tid kund: ${billableHours.toFixed(1)}h`, margin, yPosition)
         yPosition += lineHeight
 
-        const overtimeHours = resolveOvertimeHours(report.overtimeHours, totalHours)
+        const overtimeHours = resolveOvertimeHours(report.overtimeHours, totalHours, report.entries)
         if (overtimeHours > 0) {
-          doc.text(`Övertid (över 8 h): ${overtimeHours.toFixed(1)}h`, margin, yPosition)
+          doc.text(`Övertid (över 8 h/utanför 07-16): ${overtimeHours.toFixed(1)}h`, margin, yPosition)
           yPosition += lineHeight
         }
 

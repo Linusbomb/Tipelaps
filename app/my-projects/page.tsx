@@ -1,10 +1,11 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, useEffect, useMemo } from 'react'
+import { useSearchParams } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { format } from 'date-fns'
 import { sv } from 'date-fns/locale'
+import ProjectMyHoursPanel from '../components/ProjectMyHoursPanel'
 
 interface Project {
   id: string
@@ -37,39 +38,42 @@ const ProjectReadOnlyMap = dynamic(() => import('../components/ProjectReadOnlyMa
   ssr: false,
 })
 
+function projectMatchesSearch(project: Project, needle: string): boolean {
+  if (!needle) return true
+  const blob = [
+    project.name,
+    project.address,
+    project.customer.name,
+    project.description ?? '',
+    ...project.employees.map((e) => e.user.name),
+  ]
+    .join(' ')
+    .toLowerCase()
+  return blob.includes(needle)
+}
+
 export default function MyProjectsPage() {
-  const router = useRouter()
-  const [user, setUser] = useState<any>(null)
+  const searchParams = useSearchParams()
+  const requestedProjectId = searchParams.get('projectId')
   const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [projectSearch, setProjectSearch] = useState('')
+  const [listTab, setListTab] = useState<'active' | 'completed'>('active')
 
   useEffect(() => {
     if (typeof window === 'undefined') return
 
-    const checkAuth = async () => {
-      const token = localStorage.getItem('token')
-      const userData = localStorage.getItem('user')
-      
-      if (!token || !userData) {
-        window.location.href = '/login'
-        return
-      }
+    const token = localStorage.getItem('token')
+    const userData = localStorage.getItem('user')
 
-      try {
-        const parsedUser = JSON.parse(userData)
-        setUser(parsedUser)
-        fetchProjects()
-      } catch (err) {
-        console.error('Fel vid parsing av användardata:', err)
-        localStorage.removeItem('token')
-        localStorage.removeItem('user')
-        window.location.href = '/login'
-      }
+    if (!token || !userData) {
+      window.location.href = '/login'
+      return
     }
 
-    checkAuth()
-  }, [router])
+    fetchProjects()
+  }, [])
 
   const fetchProjects = async () => {
     try {
@@ -77,7 +81,7 @@ export default function MyProjectsPage() {
       const token = localStorage.getItem('token')
       const response = await fetch('/api/projects/my-projects', {
         headers: {
-          'Authorization': `Bearer ${token}`,
+          Authorization: `Bearer ${token}`,
         },
       })
 
@@ -96,58 +100,95 @@ export default function MyProjectsPage() {
     }
   }
 
-  const handleLogout = () => {
-    localStorage.removeItem('token')
-    localStorage.removeItem('user')
-    router.push('/login')
-  }
-
-  // Filtrera projekt - nya projekt är de som skapats de senaste 7 dagarna
   const now = new Date()
   const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
-  const visibleProjects = projects.filter((p) => !p.completed)
-  const unreadProjects = visibleProjects.filter((p) => !p.accepted)
-  const newProjects = visibleProjects.filter((p) => new Date(p.createdAt) > sevenDaysAgo)
-  const otherProjects = visibleProjects.filter((p) => new Date(p.createdAt) <= sevenDaysAgo)
+  const searchNeedle = projectSearch.trim().toLowerCase()
 
-  if (!user) {
-    return <div className="p-8">Laddar...</div>
-  }
+  const activeProjects = useMemo(
+    () => projects.filter((p) => !p.completed).filter((p) => projectMatchesSearch(p, searchNeedle)),
+    [projects, searchNeedle]
+  )
+
+  const completedProjects = useMemo(
+    () =>
+      projects
+        .filter((p) => p.completed)
+        .filter((p) => projectMatchesSearch(p, searchNeedle))
+        .sort((a, b) => {
+          const aMs = a.completedAt ? new Date(a.completedAt).getTime() : 0
+          const bMs = b.completedAt ? new Date(b.completedAt).getTime() : 0
+          return bMs - aMs
+        }),
+    [projects, searchNeedle]
+  )
+
+  const unreadProjects = activeProjects.filter((p) => !p.accepted)
+  const newProjects = activeProjects.filter(
+    (p) => p.accepted && new Date(p.createdAt) > sevenDaysAgo
+  )
+  const otherProjects = activeProjects.filter(
+    (p) => p.accepted && new Date(p.createdAt) <= sevenDaysAgo
+  )
+
+  useEffect(() => {
+    if (!requestedProjectId || loading || projects.length === 0) return
+    const exists = projects.some((project) => project.id === requestedProjectId)
+    if (!exists) return
+    const target = projects.find((p) => p.id === requestedProjectId)
+    if (target?.completed) setListTab('completed')
+    const element = document.getElementById(`project-card-${requestedProjectId}`)
+    if (element) {
+      element.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+  }, [requestedProjectId, loading, projects])
 
   return (
     <div className="app-shell-wide max-w-6xl">
-      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-8">
-        <h1 className="app-title text-gray-900">Mina projekt</h1>
-        <div className="flex items-center space-x-4">
-          <a
-            href="/time-report"
-            className="text-primary-600 hover:text-primary-700 px-3 py-2 rounded-md text-sm font-medium"
-          >
-            Tidrapport
-          </a>
-          <a
-            href="/my-reports"
-            className="text-primary-600 hover:text-primary-700 px-3 py-2 rounded-md text-sm font-medium"
-          >
-            Mina rapporter
-          </a>
-          <span className="text-gray-700">Hej, {user.name}!</span>
-          <button
-            onClick={handleLogout}
-            className="text-gray-600 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium"
-          >
-            Logga ut
-          </button>
-        </div>
-      </div>
-
-      {unreadProjects.length > 0 && (
+      {unreadProjects.length > 0 && listTab === 'active' && (
         <div className="mb-6 rounded-lg border border-orange-200 bg-orange-50 px-4 py-3">
           <p className="text-sm font-medium text-orange-900">
             Du har {unreadProjects.length} oläst{unreadProjects.length > 1 ? 'a' : ''} projekt att godkänna.
           </p>
         </div>
       )}
+
+      <div className="mb-6 flex flex-col sm:flex-row sm:items-end gap-3">
+        <div className="flex rounded-lg border border-gray-200 p-1 bg-gray-50">
+          <button
+            type="button"
+            onClick={() => setListTab('active')}
+            className={`px-4 py-2 text-sm font-medium rounded-md transition ${
+              listTab === 'active' ? 'bg-white shadow text-gray-900' : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            Aktiva ({projects.filter((p) => !p.completed).length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setListTab('completed')}
+            className={`px-4 py-2 text-sm font-medium rounded-md transition ${
+              listTab === 'completed'
+                ? 'bg-white shadow text-gray-900'
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            Avslutade ({projects.filter((p) => p.completed).length})
+          </button>
+        </div>
+        <div className="flex-1 sm:max-w-md">
+          <label htmlFor="project-search" className="sr-only">
+            Sök projekt
+          </label>
+          <input
+            id="project-search"
+            type="search"
+            value={projectSearch}
+            onChange={(e) => setProjectSearch(e.target.value)}
+            placeholder="Sök projekt (namn, kund, adress)..."
+            className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white"
+          />
+        </div>
+      </div>
 
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-4">
@@ -159,62 +200,155 @@ export default function MyProjectsPage() {
         <div className="bg-white shadow rounded-lg p-8 text-center">
           <p className="text-gray-500">Laddar projekt...</p>
         </div>
-      ) : (
+      ) : listTab === 'active' ? (
         <>
-          {/* Olästa projekt */}
           {unreadProjects.length > 0 && (
             <div className="mb-8">
-              <h2 className="text-2xl font-semibold text-gray-900 mb-4">
-                Olästa projekt
-              </h2>
+              <h2 className="text-xl font-semibold text-gray-900 mb-4">Olästa projekt</h2>
               <div className="space-y-4">
                 {unreadProjects.map((project) => (
-                  <ProjectCard key={project.id} project={project} isNew={true} onAccept={fetchProjects} />
+                  <ProjectCard
+                    key={project.id}
+                    project={project}
+                    isNew={true}
+                    onAccept={fetchProjects}
+                    highlighted={requestedProjectId === project.id}
+                  />
                 ))}
               </div>
             </div>
           )}
 
-          {/* Nya projekt */}
-          {newProjects.filter(p => p.accepted).length > 0 && (
+          {newProjects.length > 0 && (
             <div className="mb-8">
-              <h2 className="text-2xl font-semibold text-gray-900 mb-4">
-                Nya projekt
-              </h2>
+              <h2 className="text-xl font-semibold text-gray-900 mb-4">Nya projekt</h2>
               <div className="space-y-4">
-                {newProjects.filter(p => p.accepted).map((project) => (
-                  <ProjectCard key={project.id} project={project} isNew={true} onAccept={fetchProjects} />
+                {newProjects.map((project) => (
+                  <ProjectCard
+                    key={project.id}
+                    project={project}
+                    isNew={true}
+                    onAccept={fetchProjects}
+                    highlighted={requestedProjectId === project.id}
+                  />
                 ))}
               </div>
             </div>
           )}
 
-          {/* Övriga projekt */}
-          {otherProjects.filter(p => p.accepted).length > 0 && (
+          {otherProjects.length > 0 && (
             <div>
-              <h2 className="text-2xl font-semibold text-gray-900 mb-4">
-                Alla projekt
-              </h2>
+              <h2 className="text-xl font-semibold text-gray-900 mb-4">Alla projekt</h2>
               <div className="space-y-4">
-                {otherProjects.filter(p => p.accepted).map((project) => (
-                  <ProjectCard key={project.id} project={project} isNew={false} onAccept={fetchProjects} />
+                {otherProjects.map((project) => (
+                  <ProjectCard
+                    key={project.id}
+                    project={project}
+                    isNew={false}
+                    onAccept={fetchProjects}
+                    highlighted={requestedProjectId === project.id}
+                  />
                 ))}
               </div>
             </div>
           )}
 
-          {visibleProjects.length === 0 && (
+          {activeProjects.length === 0 && (
             <div className="bg-white shadow rounded-lg p-8 text-center">
-              <p className="text-gray-500">Du har inga aktiva projekt just nu.</p>
+              <p className="text-gray-500">
+                {searchNeedle
+                  ? 'Inga aktiva projekt matchar sökningen.'
+                  : 'Du har inga aktiva projekt just nu.'}
+              </p>
             </div>
           )}
         </>
+      ) : completedProjects.length > 0 ? (
+        <div>
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">Avslutade projekt</h2>
+          <div className="space-y-4">
+            {completedProjects.map((project) => (
+              <CompletedProjectCard
+                key={project.id}
+                project={project}
+                highlighted={requestedProjectId === project.id}
+              />
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="bg-white shadow rounded-lg p-8 text-center">
+          <p className="text-gray-500">
+            {searchNeedle
+              ? 'Inga avslutade projekt matchar sökningen.'
+              : 'Du har inga avslutade projekt ännu.'}
+          </p>
+        </div>
       )}
     </div>
   )
 }
 
-function ProjectCard({ project, isNew, onAccept }: { project: Project; isNew: boolean; onAccept: () => void }) {
+function CompletedProjectCard({
+  project,
+  highlighted = false,
+}: {
+  project: Project
+  highlighted?: boolean
+}) {
+  const startDate = new Date(project.startDate)
+  const completedAt = project.completedAt ? new Date(project.completedAt) : null
+
+  return (
+    <div
+      id={`project-card-${project.id}`}
+      className={`bg-white shadow rounded-lg p-6 border-l-4 border-emerald-700 ${
+        highlighted ? 'ring-2 ring-green-700' : ''
+      }`}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
+        <div>
+          <h3 className="text-xl font-semibold text-gray-900">{project.name}</h3>
+          <span className="inline-block mt-1 px-2 py-1 text-xs font-semibold bg-emerald-700 text-white rounded">
+            Slutfört
+          </span>
+        </div>
+        {completedAt && (
+          <p className="text-sm text-emerald-900 font-medium">
+            Avslutat: {format(completedAt, 'd MMMM yyyy HH:mm', { locale: sv })}
+          </p>
+        )}
+      </div>
+      <p className="text-sm text-gray-600 mb-1">
+        <strong>Kund:</strong> {project.customer.name}
+      </p>
+      <p className="text-sm text-gray-600 mb-1">
+        <strong>Adress:</strong> {project.address}
+      </p>
+      <p className="text-sm text-gray-600">
+        <strong>Startdatum:</strong> {format(startDate, 'd MMMM yyyy', { locale: sv })}
+      </p>
+      {project.description && (
+        <div className="mt-4 p-3 bg-gray-50 rounded-md">
+          <p className="text-sm text-gray-600 whitespace-pre-wrap">{project.description}</p>
+        </div>
+      )}
+      <ProjectMyHoursPanel projectId={project.id} showInfoText={false} />
+    </div>
+  )
+}
+
+function ProjectCard({
+  project,
+  isNew,
+  onAccept,
+  highlighted = false,
+}: {
+  project: Project
+  isNew: boolean
+  onAccept: () => void
+  highlighted?: boolean
+}) {
   const [accepting, setAccepting] = useState(false)
   const [completing, setCompleting] = useState(false)
   const [accepted, setAccepted] = useState(project.accepted || false)
@@ -234,7 +368,7 @@ function ProjectCard({ project, isNew, onAccept }: { project: Project; isNew: bo
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({ projectId: project.id }),
       })
@@ -246,7 +380,7 @@ function ProjectCard({ project, isNew, onAccept }: { project: Project; isNew: bo
       }
 
       setAccepted(true)
-      onAccept() // Uppdatera listan
+      onAccept()
     } catch (err: any) {
       console.error('Fel vid acceptering:', err)
       alert(err.message || 'Kunde inte acceptera projekt')
@@ -274,7 +408,7 @@ function ProjectCard({ project, isNew, onAccept }: { project: Project; isNew: bo
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({ projectId: project.id }),
       })
@@ -296,10 +430,21 @@ function ProjectCard({ project, isNew, onAccept }: { project: Project; isNew: bo
   }
 
   const copyInfoToNewTimeReport = () => {
+    const descriptionParts = [`Projekt: ${project.name}`]
+    if (project.address?.trim()) descriptionParts.push(`Adress: ${project.address.trim()}`)
+    if (project.description?.trim()) descriptionParts.push(project.description.trim())
+    if (project.assignedEquipment?.trim()) {
+      descriptionParts.push(`Tilldelat fordon: ${project.assignedEquipment.trim()}`)
+    }
+
     const payload = {
+      projectId: project.id,
+      projectName: project.name,
       customerId: project.customer.id,
       customerName: project.customer.name,
       address: project.address,
+      description: descriptionParts.join('\n'),
+      assignedEquipment: project.assignedEquipment || '',
       copiedAt: new Date().toISOString(),
     }
     localStorage.setItem('prefillTimeReportFromProject', JSON.stringify(payload))
@@ -307,16 +452,21 @@ function ProjectCard({ project, isNew, onAccept }: { project: Project; isNew: bo
   }
 
   return (
-    <div className={`bg-white shadow rounded-lg p-6 border-l-4 relative ${
-      isNew 
-        ? 'border-blue-500 bg-blue-50' 
-        : isUpcoming 
-        ? 'border-green-500' 
-        : 'border-gray-300'
-    }`}>
+    <div
+      id={`project-card-${project.id}`}
+      className={`bg-white shadow rounded-lg p-6 border-l-4 relative ${
+        highlighted
+          ? 'ring-2 ring-green-700 border-green-700'
+          : isNew
+            ? 'border-blue-500 bg-blue-50'
+            : isUpcoming
+              ? 'border-green-500'
+              : 'border-gray-300'
+      }`}
+    >
       <div className="flex justify-between items-start mb-4">
         <div className="flex-1">
-          <div className="flex items-center gap-2 mb-2">
+          <div className="flex items-center gap-2 mb-2 flex-wrap">
             <button
               type="button"
               onClick={handleProjectClick}
@@ -344,11 +494,6 @@ function ProjectCard({ project, isNew, onAccept }: { project: Project; isNew: bo
                 Accepterat
               </span>
             )}
-            {completed && (
-              <span className="px-2 py-1 text-xs font-semibold bg-emerald-700 text-white rounded">
-                Slutfört
-              </span>
-            )}
           </div>
           <p className="text-sm text-gray-600 mb-1">
             <strong>Kund:</strong> {project.customer.name}
@@ -374,7 +519,7 @@ function ProjectCard({ project, isNew, onAccept }: { project: Project; isNew: bo
             >
               {accepting ? 'Godkänner...' : 'Öppna & godkänn'}
             </button>
-          ) : !completed ? (
+          ) : (
             <button
               onClick={() => setShowCompleteConfirm(true)}
               disabled={completing}
@@ -382,10 +527,6 @@ function ProjectCard({ project, isNew, onAccept }: { project: Project; isNew: bo
             >
               {completing ? 'Markerar...' : 'Slutfört projekt'}
             </button>
-          ) : (
-            <div className="px-4 py-2 bg-green-100 text-green-800 rounded-md font-medium">
-              ✓ Projekt slutfört
-            </div>
           )}
         </div>
       </div>
@@ -407,7 +548,7 @@ function ProjectCard({ project, isNew, onAccept }: { project: Project; isNew: bo
       <div className="mt-4 pt-4 border-t border-gray-200">
         <p className="text-xs text-gray-500">
           <strong>Medarbetare på projektet:</strong>{' '}
-          {project.employees.map(e => e.user.name).join(', ')}
+          {project.employees.map((e) => e.user.name).join(', ')}
         </p>
         <button
           type="button"
@@ -418,6 +559,8 @@ function ProjectCard({ project, isNew, onAccept }: { project: Project; isNew: bo
           Kopiera information till ny tidrapport
         </button>
       </div>
+
+      {accepted && <ProjectMyHoursPanel projectId={project.id} />}
 
       {showCompleteConfirm && (
         <div className="absolute inset-0 bg-black/40 rounded-lg flex items-center justify-center p-4">

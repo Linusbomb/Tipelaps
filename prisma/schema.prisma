@@ -27,9 +27,11 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   timeReports TimeReport[]
+  absenceReports AbsenceReport[]
   documents EmployeeDocument[]
   nextOfKin NextOfKin[]
   projects ProjectEmployee[]
+  projectAttachments ProjectAttachment[] @relation("ProjectAttachmentUploader")
   vacationWeeks VacationWeek[]
   employmentEndedAt DateTime? // Avslutat – kan inte logga in; tidrapporter bevaras
 }
@@ -57,6 +59,7 @@ model Customer {
   address   String?  // Adress
   information String? // Nödvändig information om kunden
   contactEmail String? // E-post för utskick av tidrapporter till kund
+  archivedAt DateTime? // Arkiverad kund visas inte som aktiv
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   timeReports TimeReport[]
@@ -67,6 +70,8 @@ model TimeReport {
   id        String   @id @default(cuid())
   userId    String
   user      User     @relation(fields: [userId], references: [id])
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
   customerId String
   customer  Customer @relation(fields: [customerId], references: [id])
   date      DateTime
@@ -84,6 +89,7 @@ model TimeReport {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   entries   TimeReportEntry[]
+  attachments ProjectAttachment[]
 }
 
 model TimeReportEntry {
@@ -92,12 +98,36 @@ model TimeReportEntry {
   timeReport  TimeReport @relation(fields: [timeReportId], references: [id], onDelete: Cascade)
   hours       Float
   machineHours Float?  // Fordonstimmar
+  startTime   String? // Klockslag HH:mm för löne-/övertidsunderlag
+  endTime     String? // Klockslag HH:mm för löne-/övertidsunderlag
   vehicle     String?  // Fordon man kört
   description String   // Arbetsbeskrivning
   location    String?  // Vart du har varit
   referenceNumber String? // Referensnummer
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+model AbsenceReport {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  date        DateTime
+  year        Int
+  month       String
+  type        String   // WORK_TIME_REDUCTION, PARENTAL_LEAVE, PUBLIC_HOLIDAY_COMPENSATION, COMP_TIME, VACATION, SICK, UNPAID_LEAVE, VAB
+  isFullDay   Boolean  @default(true)
+  hours       Float?
+  note        String?
+  status      String   @default("DRAFT")
+  submittedAt DateTime?
+  approvedAt  DateTime?
+  approvedBy  String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId, month])
+  @@index([status, month])
 }
 
 model EmployeeDocument {
@@ -145,7 +175,28 @@ model Project {
   description String?  // Nödvändig information
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  timeReports TimeReport[]
   employees   ProjectEmployee[]
+  attachments ProjectAttachment[]
+}
+
+model ProjectAttachment {
+  id          String   @id @default(cuid())
+  projectId   String?
+  project     Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  timeReportId String?
+  timeReport  TimeReport? @relation(fields: [timeReportId], references: [id], onDelete: SetNull)
+  uploadedBy  String
+  uploader    User     @relation("ProjectAttachmentUploader", fields: [uploadedBy], references: [id], onDelete: Cascade)
+  fileName    String
+  filePath    String
+  mimeType    String
+  fileSize    Int
+  createdAt   DateTime @default(now())
+
+  @@index([projectId, createdAt])
+  @@index([timeReportId, createdAt])
+  @@index([uploadedBy, createdAt])
 }
 
 model ProjectEmployee {

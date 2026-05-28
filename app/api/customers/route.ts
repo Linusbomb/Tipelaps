@@ -35,9 +35,13 @@ export async function GET(request: NextRequest) {
       return NextResponse.json([])
     }
 
+    const { searchParams } = new URL(request.url)
+    const activeOnly = searchParams.get('activeOnly') === 'true'
+
     const customers = await prisma.customer.findMany({
       where: {
         companyId,
+        ...(activeOnly ? { archivedAt: null } : {}),
       },
       orderBy: { name: 'asc' },
     })
@@ -68,7 +72,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { name } = body
+    const { name, organizationNumber, address, information, contactEmail } = body
 
     if (!name) {
       return NextResponse.json(
@@ -77,10 +81,44 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    const normalizedOrgNumber =
+      organizationNumber === undefined || organizationNumber === null || organizationNumber === ''
+        ? null
+        : String(organizationNumber).trim()
+
+    if (normalizedOrgNumber) {
+      const existingWithOrg = await prisma.customer.findFirst({
+        where: {
+          companyId,
+          organizationNumber: normalizedOrgNumber,
+        },
+        select: { id: true, name: true },
+      })
+      if (existingWithOrg) {
+        return NextResponse.json(
+          { error: `Kund med org.nr finns redan: ${existingWithOrg.name}` },
+          { status: 409 }
+        )
+      }
+    }
+
     const customer = await prisma.customer.create({
       data: {
-        name,
+        name: String(name).trim(),
         companyId,
+        organizationNumber: normalizedOrgNumber,
+        address:
+          address === undefined || address === null || address === ''
+            ? null
+            : String(address).trim(),
+        information:
+          information === undefined || information === null || information === ''
+            ? null
+            : String(information).trim(),
+        contactEmail:
+          contactEmail === undefined || contactEmail === null || contactEmail === ''
+            ? null
+            : String(contactEmail).trim(),
       },
     })
 

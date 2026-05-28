@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getAdminApiUser, adminEffectiveCompanyId } from '@/lib/apiAdmin'
+import { roundHours, sumEntryMachineHours } from '@/lib/projectHours'
 
 export const dynamic = 'force-dynamic'
 
@@ -41,8 +42,15 @@ export async function GET(
       select: {
         id: true,
         name: true,
+        address: true,
+        description: true,
         customerId: true,
         startDate: true,
+        customer: { select: { name: true } },
+        attachments: {
+          select: { id: true, fileName: true, mimeType: true, createdAt: true },
+          orderBy: { createdAt: 'desc' },
+        },
         employees: {
           select: {
             userId: true,
@@ -57,10 +65,38 @@ export async function GET(
     }
 
     const assignedUserIds = Array.from(new Set(project.employees.map((e) => e.userId)))
+    const projectPayload = {
+      id: project.id,
+      name: project.name,
+      address: project.address,
+      description: project.description,
+      startDate: project.startDate.toISOString(),
+      customerName: project.customer.name,
+      attachments: project.attachments.map((a) => ({
+        id: a.id,
+        fileName: a.fileName,
+        mimeType: a.mimeType,
+        createdAt: a.createdAt.toISOString(),
+      })),
+    }
+
     if (assignedUserIds.length === 0) {
       return NextResponse.json({
-        project: { id: project.id, name: project.name },
+        project: projectPayload,
         reports: [],
+        summary: {
+          totalHours: 0,
+          totalMachineHours: 0,
+          hoursApproved: 0,
+          hoursSubmitted: 0,
+          hoursDraft: 0,
+          reportCount: 0,
+          linkedToProjectCount: 0,
+          byStatus: {},
+          byUser: [],
+          draftByUser: [],
+          latestCompletionAt: null,
+        },
         hint:
           'Ingen personal tilldelad projektet — inga tidrapporter kan matchas.',
       })
@@ -82,12 +118,18 @@ export async function GET(
 
     const reports = await prisma.timeReport.findMany({
       where: {
-        customerId: project.customerId,
-        userId: { in: assignedUserIds },
-        date: {
-          gte: startBoundary,
-          lte: endBoundary,
-        },
+        OR: [
+          { projectId },
+          {
+            projectId: null,
+            customerId: project.customerId,
+            userId: { in: assignedUserIds },
+            date: {
+              gte: startBoundary,
+              lte: endBoundary,
+            },
+          },
+        ],
       },
       select: {
         id: true,
@@ -95,16 +137,110 @@ export async function GET(
         month: true,
         totalHours: true,
         status: true,
+        projectId: true,
         user: {
           select: { id: true, name: true },
+        },
+        entries: {
+          select: { machineHours: true },
         },
       },
       orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
     })
 
+    type UserAgg = {
+      userId: string
+      name: string
+      hours: number
+      hoursApproved: number
+      hoursSubmitted: number
+      hoursDraft: number
+      machineHours: number
+      reportCount: number
+      draftReportCount: number
+    }
+
+    const byUserMap = new Map<string, UserAgg>()
+    const byStatus: Record<string, number> = {}
+    let totalHours = 0
+    let totalMachineHours = 0
+    let hoursApproved = 0
+    let hoursSubmitted = 0
+    let hoursDraft = 0
+
+    for (const report of reports) {
+      const hours = report.totalHours ?? 0
+      const machineHours = sumEntryMachineHours(report.entries)
+      totalHours += hours
+      totalMachineHours += machineHours
+      byStatus[report.status] = (byStatus[report.status] ?? 0) + hours
+      if (report.status === 'APPROVED') hoursApproved += hours
+      else if (report.status === 'SUBMITTED') hoursSubmitted += hours
+      else if (report.status === 'DRAFT') hoursDraft += hours
+
+      const prev = byUserMap.get(report.user.id) ?? {
+        userId: report.user.id,
+        name: report.user.name,
+        hours: 0,
+        hoursApproved: 0,
+        hoursSubmitted: 0,
+        hoursDraft: 0,
+        machineHours: 0,
+        reportCount: 0,
+        draftReportCount: 0,
+      }
+      prev.hours += hours
+      prev.machineHours += machineHours
+      prev.reportCount += 1
+      if (report.status === 'APPROVED') prev.hoursApproved += hours
+      else if (report.status === 'SUBMITTED') prev.hoursSubmitted += hours
+      else if (report.status === 'DRAFT') {
+        prev.hoursDraft += hours
+        prev.draftReportCount += 1
+      }
+      byUserMap.set(report.user.id, prev)
+    }
+
+    const byUser = Array.from(byUserMap.values())
+      .map((row) => ({
+        ...row,
+        hours: roundHours(row.hours),
+        hoursApproved: roundHours(row.hoursApproved),
+        hoursSubmitted: roundHours(row.hoursSubmitted),
+        hoursDraft: roundHours(row.hoursDraft),
+        machineHours: roundHours(row.machineHours),
+      }))
+      .sort((a, b) => b.hours - a.hours)
+
+    const draftByUser = byUser
+      .filter((row) => row.draftReportCount > 0)
+      .map((row) => ({
+        userId: row.userId,
+        name: row.name,
+        hours: row.hoursDraft,
+        reportCount: row.draftReportCount,
+      }))
+      .sort((a, b) => b.hours - a.hours)
+
+    const latestCompletionAt =
+      completionTimes.length > 0 ? new Date(latestCompletionMs).toISOString() : null
+
     return NextResponse.json({
-      project: { id: project.id, name: project.name },
+      project: projectPayload,
       reports,
+      summary: {
+        totalHours: roundHours(totalHours),
+        totalMachineHours: roundHours(totalMachineHours),
+        hoursApproved: roundHours(hoursApproved),
+        hoursSubmitted: roundHours(hoursSubmitted),
+        hoursDraft: roundHours(hoursDraft),
+        reportCount: reports.length,
+        linkedToProjectCount: reports.filter((r) => r.projectId === projectId).length,
+        byStatus,
+        byUser,
+        draftByUser,
+        latestCompletionAt,
+      },
       window: {
         from: startBoundary.toISOString(),
         to: endBoundary.toISOString(),

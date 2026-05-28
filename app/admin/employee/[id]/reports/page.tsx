@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { format } from 'date-fns'
 import { sv } from 'date-fns/locale'
+import UnlockTimeReportingButton from '@/app/components/UnlockTimeReportingButton'
 
 export default function EmployeeReportsPage() {
   const router = useRouter()
@@ -127,16 +128,26 @@ export default function EmployeeReportsPage() {
         </div>
       </div>
 
-      <div className="mb-6">
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          Välj månad
-        </label>
-        <input
-          type="month"
-          value={selectedMonth}
-          onChange={(e) => setSelectedMonth(e.target.value)}
-          className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-primary-500 focus:border-primary-500"
-        />
+      <div className="mb-6 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Välj månad
+          </label>
+          <input
+            type="month"
+            value={selectedMonth}
+            onChange={(e) => setSelectedMonth(e.target.value)}
+            className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-primary-500 focus:border-primary-500"
+          />
+        </div>
+        {(submittedReports.length > 0 || approvedReports.length > 0) && employeeId && (
+          <UnlockTimeReportingButton
+            userId={employeeId}
+            month={selectedMonth}
+            label="Lås upp månaden för komplettering"
+            onUnlocked={fetchData}
+          />
+        )}
       </div>
 
       {error && (
@@ -164,6 +175,12 @@ export default function EmployeeReportsPage() {
       </div>
 
       <div className="space-y-6">
+        {reports.length > 0 && (
+          <h2 className="text-xl font-bold text-gray-900" style={{ color: '#2D5016' }}>
+            Arbetade timmar
+          </h2>
+        )}
+
         {draftReports.length > 0 && (
           <div>
             <h2 className="text-xl font-semibold mb-4 text-orange-600">
@@ -184,7 +201,12 @@ export default function EmployeeReportsPage() {
             </h2>
             <div className="space-y-4">
               {submittedReports.map((report) => (
-                <ReportCard key={report.id} report={report} />
+                <ReportCard
+                  key={report.id}
+                  report={report}
+                  employeeId={employeeId}
+                  onUnlocked={fetchData}
+                />
               ))}
             </div>
           </div>
@@ -197,7 +219,12 @@ export default function EmployeeReportsPage() {
             </h2>
             <div className="space-y-4">
               {approvedReports.map((report) => (
-                <ReportCard key={report.id} report={report} />
+                <ReportCard
+                  key={report.id}
+                  report={report}
+                  employeeId={employeeId}
+                  onUnlocked={fetchData}
+                />
               ))}
             </div>
           </div>
@@ -213,7 +240,15 @@ export default function EmployeeReportsPage() {
   )
 }
 
-function ReportCard({ report }: { report: any }) {
+function ReportCard({
+  report,
+  employeeId,
+  onUnlocked,
+}: {
+  report: any
+  employeeId?: string
+  onUnlocked?: () => void
+}) {
   const reportDate = format(new Date(report.date), 'd MMMM yyyy', { locale: sv })
   const totalHours = report.entries.reduce((sum: number, entry: any) => sum + entry.hours, 0)
   const totalMachineHours = report.entries.reduce(
@@ -227,8 +262,13 @@ function ReportCard({ report }: { report: any }) {
     <div className="bg-white shadow rounded-lg p-6">
       <div className="flex justify-between items-start mb-4">
         <div>
-          <h3 className="text-lg font-semibold text-gray-900">{report.customer?.name || 'Okänd kund'}</h3>
-          <p className="text-sm text-gray-600">Datum: {reportDate}</p>
+          <h3 className="text-lg font-semibold text-gray-900">
+            {report.project?.name?.trim() || 'Inget projekt'}
+          </h3>
+          {report.customer?.name ? (
+            <p className="text-xs text-gray-500 mt-0.5">{report.customer.name}</p>
+          ) : null}
+          <p className="text-sm text-gray-600 mt-1">Datum: {reportDate}</p>
           <p className="text-sm text-gray-600">Totalt: {totalHours.toFixed(1)} timmar</p>
           {otherHours > 0 && (
             <p className="text-sm text-gray-600">Övrig tid (ej fordonstimmar): {otherHours.toFixed(1)} timmar</p>
@@ -276,6 +316,18 @@ function ReportCard({ report }: { report: any }) {
           <p className="text-sm text-gray-600 whitespace-pre-line">{report.missingHoursReason}</p>
         </div>
       )}
+
+      {employeeId &&
+        (report.status === 'SUBMITTED' || report.status === 'APPROVED') && (
+          <div className="border-t pt-4 mt-4">
+            <UnlockTimeReportingButton
+              userId={employeeId}
+              reportIds={[report.id]}
+              label="Lås upp denna rapport"
+              onUnlocked={onUnlocked}
+            />
+          </div>
+        )}
     </div>
   )
 }

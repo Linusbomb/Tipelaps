@@ -4,8 +4,14 @@ import { useEffect, useState, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import SuccessDialog from '@/app/components/SuccessDialog'
 import ConfirmDialog from '@/app/components/ConfirmDialog'
+import ClockTimeInput from '@/app/components/ClockTimeInput'
 import OvertimeSummary from '@/app/components/OvertimeSummary'
 import { computeOvertimeHours, resolveOvertimeHours } from '@/lib/overtime'
+import {
+  customerIdForSelectedProject,
+  mapApiProjectsToOptions,
+  type MyProjectOption,
+} from '@/lib/timeReportForm'
 
 const MACHINE_OPTIONS = [
   'Hjullastare',
@@ -22,6 +28,8 @@ type EntryRow = {
   hours: number
   description: string
   machineHours: number | null
+  startTime: string
+  endTime: string
   machineType: string
   registrationNumber: string
 }
@@ -45,16 +53,20 @@ export default function TimeReportDetailPage() {
   const [editable, setEditable] = useState(false)
   const [customerDisplayName, setCustomerDisplayName] = useState('')
   const [customers, setCustomers] = useState<{ id: string; name: string }[]>([])
+  const [myProjects, setMyProjects] = useState<MyProjectOption[]>([])
+  const [selectedProjectId, setSelectedProjectId] = useState('')
   const [selectedCustomer, setSelectedCustomer] = useState('')
   const [selectedDate, setSelectedDate] = useState('')
   const [entries, setEntries] = useState<EntryRow[]>([
-    { hours: 0, description: '', machineHours: null, machineType: '', registrationNumber: '' },
+    { hours: 0, description: '', machineHours: null, startTime: '', endTime: '', machineType: '', registrationNumber: '' },
   ])
   const [missingHoursReason, setMissingHoursReason] = useState('')
   const [buyerReference, setBuyerReference] = useState('')
   const [saveSuccessOpen, setSaveSuccessOpen] = useState(false)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [attachments, setAttachments] = useState<Array<{ id: string; fileName: string; createdAt: string }>>([])
+  const [uploadingAttachment, setUploadingAttachment] = useState(false)
 
   const [storedOvertimeHours, setStoredOvertimeHours] = useState<number | null>(null)
   const totalHours = entries.reduce((sum, e) => sum + (e.hours || 0), 0)
@@ -64,7 +76,7 @@ export default function TimeReportDetailPage() {
   )
   const remainingHours = totalHours - totalMachineHours
   const overtimeHours = editable
-    ? computeOvertimeHours(totalHours)
+    ? computeOvertimeHours(totalHours, entries)
     : resolveOvertimeHours(storedOvertimeHours, totalHours)
 
   const loadReport = useCallback(async () => {
@@ -81,7 +93,7 @@ export default function TimeReportDetailPage() {
         fetch(`/api/time-reports/${reportId}`, {
           headers: { Authorization: `Bearer ${token}` },
         }),
-        fetch('/api/customers', {
+        fetch('/api/customers?activeOnly=true', {
           headers: { Authorization: `Bearer ${token}` },
         }),
       ])
@@ -100,6 +112,7 @@ export default function TimeReportDetailPage() {
       setReportStatus(data.status || '')
       setEditable(Boolean(data.editable))
       setCustomerDisplayName(data.customer?.name || '')
+      setSelectedProjectId(data.project?.id || '')
       setSelectedCustomer(data.customer?.id || '')
       const reportDay = new Date(data.date)
       setSelectedDate(reportDay.toISOString().split('T')[0])
@@ -125,6 +138,8 @@ export default function TimeReportDetailPage() {
           description: en.description || '',
           machineHours:
             en.machineHours !== null && en.machineHours !== undefined ? Number(en.machineHours) : null,
+          startTime: en.startTime || '',
+          endTime: en.endTime || '',
           machineType,
           registrationNumber,
         }
@@ -135,12 +150,15 @@ export default function TimeReportDetailPage() {
           hours: 0,
           description: '',
           machineHours: null,
+          startTime: '',
+          endTime: '',
           machineType: '',
           registrationNumber: '',
         })
       }
 
       setEntries(mapped)
+      setAttachments(Array.isArray(data.attachments) ? data.attachments : [])
 
       if (customersRes.ok) {
         setCustomers(await customersRes.json())
@@ -156,10 +174,24 @@ export default function TimeReportDetailPage() {
     if (reportId) loadReport()
   }, [reportId, loadReport])
 
+  useEffect(() => {
+    const token = localStorage.getItem('token')
+    if (!token) return
+    fetch('/api/projects/my-projects', {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data) => {
+        if (!Array.isArray(data)) return
+        setMyProjects(mapApiProjectsToOptions(data))
+      })
+      .catch(() => setMyProjects([]))
+  }, [])
+
   const addEntry = () => {
     setEntries([
       ...entries,
-      { hours: 0, description: '', machineHours: null, machineType: '', registrationNumber: '' },
+      { hours: 0, description: '', machineHours: null, startTime: '', endTime: '', machineType: '', registrationNumber: '' },
     ])
   }
 
@@ -245,11 +277,14 @@ export default function TimeReportDetailPage() {
         },
         body: JSON.stringify({
           customerId: selectedCustomer,
+          projectId: selectedProjectId || null,
           date: selectedDate,
           entries: entries.map((e) => ({
             hours: e.hours,
             description: e.description,
             machineHours: e.machineHours,
+            startTime: e.startTime,
+            endTime: e.endTime,
             machineType: e.machineType,
             registrationNumber: e.registrationNumber,
           })),
@@ -264,10 +299,38 @@ export default function TimeReportDetailPage() {
       }
 
       setSaveSuccessOpen(true)
+      await loadReport()
     } catch (err: unknown) {
       alert(err instanceof Error ? err.message : 'Något gick fel')
     } finally {
       setSaving(false)
+    }
+  }
+
+  const uploadAttachment = async (file: File) => {
+    try {
+      setUploadingAttachment(true)
+      const token = localStorage.getItem('token')
+      if (!token) {
+        router.push('/login')
+        return
+      }
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('timeReportId', reportId)
+      if (selectedProjectId) formData.append('projectId', selectedProjectId)
+      const response = await fetch('/api/project-attachments', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error || 'Kunde inte ladda upp bilaga')
+      await loadReport()
+    } catch (err: any) {
+      alert(err.message || 'Kunde inte ladda upp bilaga')
+    } finally {
+      setUploadingAttachment(false)
     }
   }
 
@@ -332,8 +395,8 @@ export default function TimeReportDetailPage() {
         {!editable && (
           <p className="text-sm text-gray-600 mb-6 p-4 bg-gray-50 rounded-md border border-gray-200">
             {reportStatus === 'SUBMITTED'
-              ? 'Denna rapport är inskickad till administratören och kan inte ändras eller tas bort.'
-              : 'Denna rapport är godkänd och är skrivskyddad. Kontakta din chef om något behöver rättas.'}
+              ? 'Denna rapport är inskickad till administratören och kan inte ändras. Be din chef låsa upp den om du behöver komplettera — då kan du redigera och skicka in igen.'
+              : 'Denna rapport är godkänd och är skrivskyddad. Be din chef låsa upp den om något behöver rättas, så att du kan komplettera och skicka in på nytt.'}
           </p>
         )}
 
@@ -351,6 +414,29 @@ export default function TimeReportDetailPage() {
                 {customers.map((customer) => (
                   <option key={customer.id} value={customer.id}>
                     {customer.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="mb-6">
+              <label className="block text-sm font-medium mb-2">
+                Koppla till projekt <span className="font-normal text-gray-500">(valfritt)</span>
+              </label>
+              <select
+                value={selectedProjectId}
+                onChange={(e) => {
+                  const projectId = e.target.value
+                  setSelectedProjectId(projectId)
+                  const customerId = customerIdForSelectedProject(myProjects, projectId)
+                  if (customerId) setSelectedCustomer(customerId)
+                }}
+                className="w-full px-4 py-2 border border-gray-300 rounded-md"
+              >
+                <option value="">Inget projekt valt</option>
+                {myProjects.map((project) => (
+                  <option key={project.id} value={project.id}>
+                    {project.name}
                   </option>
                 ))}
               </select>
@@ -410,6 +496,24 @@ export default function TimeReportDetailPage() {
                         onChange={(e) =>
                           updateEntry(index, 'machineHours', e.target.value ? parseFloat(e.target.value) : null)
                         }
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-2">
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Starttid</label>
+                      <ClockTimeInput
+                        value={entry.startTime}
+                        onChange={(value) => updateEntry(index, 'startTime', value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Sluttid</label>
+                      <ClockTimeInput
+                        value={entry.endTime}
+                        onChange={(value) => updateEntry(index, 'endTime', value)}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md"
                       />
                     </div>
@@ -500,6 +604,37 @@ export default function TimeReportDetailPage() {
               </div>
             )}
 
+            <div className="mb-6">
+              <label className="block text-sm font-medium mb-2">
+                Bilagor (bilder)
+              </label>
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(e) => {
+                  const file = e.target.files?.[0]
+                  if (file) uploadAttachment(file)
+                  e.currentTarget.value = ''
+                }}
+                disabled={uploadingAttachment}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white"
+              />
+              <p className="mt-2 text-xs text-gray-500">
+                Om projekt är valt kopplas bilagan dit, annars sparas den ändå på rapporten.
+              </p>
+              {attachments.length > 0 ? (
+                <ul className="mt-2 text-sm text-gray-700 space-y-1">
+                  {attachments.map((att) => (
+                    <li key={att.id}>
+                      - {att.fileName}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="mt-2 text-xs text-gray-500">Ingen bilaga uppladdad ännu.</p>
+              )}
+            </div>
+
             <div className="flex flex-wrap gap-4">
               <button
                 type="submit"
@@ -562,6 +697,9 @@ export default function TimeReportDetailPage() {
                 <p className="text-sm text-gray-500">
                   Aktivitet {idx + 1}: {entry.hours} h arbetad
                   {entry.machineHours ? ` · ${entry.machineHours} h fordon` : ''}
+                  {entry.startTime || entry.endTime
+                    ? ` · ${entry.startTime || '?'}-${entry.endTime || '?'}`
+                    : ''}
                 </p>
                 {(entry.machineType || entry.registrationNumber) && (
                   <p className="text-sm text-gray-600 mt-1">

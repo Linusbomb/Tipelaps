@@ -232,6 +232,56 @@ export async function sendTimeReportBundleEmail(options: {
   }
 }
 
+export async function sendProjectUpdateEmail(options: {
+  to: string
+  userName: string
+  projectName: string
+  projectLink: string
+}): Promise<boolean> {
+  try {
+    const safeName = escapeHtml(options.userName)
+    const safeProject = escapeHtml(options.projectName)
+    const safeLink = escapeHtml(options.projectLink)
+
+    await transporter.sendMail({
+      from: process.env.SMTP_FROM || process.env.SMTP_USER || 'noreply@timelaps.se',
+      to: options.to,
+      subject: `Ny uppdatering i projekt: ${options.projectName}`,
+      html: `
+        <!DOCTYPE html>
+        <html lang="sv">
+        <head><meta charset="UTF-8" /></head>
+        <body style="font-family:Arial,sans-serif;line-height:1.6;color:#333;">
+          <div style="max-width:600px;margin:0 auto;padding:20px;">
+            <h2 style="color:#2D5016;margin-top:0;">Ny uppdatering i ett tilldelat projekt</h2>
+            <p>Hej ${safeName},</p>
+            <p>Det finns en ny uppdatering i projektet <strong>${safeProject}</strong> som är tilldelat dig.</p>
+            <p>
+              <a href="${safeLink}" style="display:inline-block;padding:12px 20px;background:#2D5016;color:#fff;text-decoration:none;border-radius:6px;">
+                Öppna projektet
+              </a>
+            </p>
+            <p style="word-break:break-all;color:#666;font-size:14px;">${safeLink}</p>
+            <p style="color:#888;font-size:12px;margin-top:24px;">Detta meddelande skickades automatiskt från TimeLaps.</p>
+          </div>
+        </body>
+        </html>
+      `.trim(),
+      text: [
+        `Hej ${options.userName},`,
+        '',
+        `Det finns en ny uppdatering i projektet "${options.projectName}" som är tilldelat dig.`,
+        '',
+        `Öppna projektet här: ${options.projectLink}`,
+      ].join('\n'),
+    })
+    return true
+  } catch (error) {
+    console.error('Fel vid skickande av projektuppdatering:', error)
+    return false
+  }
+}
+
 /** Generisk säkerhetslarm-e-post. */
 export async function sendSecurityAlertEmail(options: {
   to: string

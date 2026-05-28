@@ -1,40 +1,30 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { useLanguage } from '@/contexts/LanguageContext'
+import { useEffect, useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import SuccessDialog from '@/app/components/SuccessDialog'
 import ConfirmDialog from '@/app/components/ConfirmDialog'
+import MonthAbsenceReportSection, {
+  type MonthAbsenceRow,
+} from '@/app/components/MonthAbsenceReportSection'
 import MonthCustomerReportFolders, {
-  groupReportsByCustomer,
+  groupReportsAsWorkHoursSection,
 } from '@/app/components/MonthCustomerReportFolders'
-
-function formatMonthYearSv(monthKey: string) {
-  const raw = new Date(`${monthKey}-01T12:00:00`).toLocaleDateString('sv-SE', {
-    month: 'long',
-    year: 'numeric',
-  })
-  return raw.charAt(0).toUpperCase() + raw.slice(1)
-}
-
-function buildRecentMonthOptions(count: number) {
-  const options: string[] = []
-  const now = new Date()
-  const baseDate = new Date(now.getFullYear(), now.getMonth(), 1)
-  const minAllowedDate = new Date(2026, 0, 1) // Januari 2026
-
-  for (let i = 0; i < count; i += 1) {
-    const d = new Date(baseDate.getFullYear(), baseDate.getMonth() - i, 1)
-    if (d < minAllowedDate) {
-      break
-    }
-    const month = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-    options.push(month)
-  }
-
-  return options
-}
+import { absenceHoursForPayroll } from '@/lib/absence'
+import {
+  isDraftReportStatus,
+  isFiledReportStatus,
+  MY_REPORTS_STATUS_ALL_FILED,
+} from '@/lib/reportStatus'
+import MonthSubmissionReminder from '@/app/components/MonthSubmissionReminder'
+import {
+  buildMonthOptions,
+  formatMonthYearSv,
+  getPreviousMonthKey,
+  resolveMonthReminder,
+  toMonthKey,
+} from '@/lib/monthReporting'
 
 interface TimeReport {
   id: string
@@ -46,6 +36,10 @@ interface TimeReport {
     id: string
     name: string
   }
+  project?: {
+    id: string
+    name: string
+  } | null
   entries: Array<{
     id: string
     hours: number
@@ -54,28 +48,110 @@ interface TimeReport {
   }>
 }
 
+type AbsenceReport = MonthAbsenceRow & {
+  month: string
+}
+
 export default function MyReportsPage() {
-  const { t } = useLanguage()
   const router = useRouter()
   const [reports, setReports] = useState<TimeReport[]>([])
+  const [absences, setAbsences] = useState<AbsenceReport[]>([])
   const [loading, setLoading] = useState(true)
-  const [selectedStatus, setSelectedStatus] = useState('ALL')
-  const [selectedMonth, setSelectedMonth] = useState('ALL')
+  const [selectedStatus, setSelectedStatus] = useState(MY_REPORTS_STATUS_ALL_FILED)
+  const [summaryStats, setSummaryStats] = useState({
+    draftTimeCount: 0,
+    draftAbsenceCount: 0,
+    filedWorkHours: 0,
+    filedAbsenceHours: 0,
+    filedReportCount: 0,
+    submittedCount: 0,
+    approvedCount: 0,
+    timeReportCount: 0,
+    absenceReportCount: 0,
+  })
+  const [selectedMonth, setSelectedMonth] = useState(() => toMonthKey(new Date()))
   const [submitSuccess, setSubmitSuccess] = useState<{ title: string; message: string } | null>(null)
+  const [selectedReportIds, setSelectedReportIds] = useState<Set<string>>(new Set())
   const [submitConfirm, setSubmitConfirm] = useState<
     | { scope: 'all'; month: string; count: number }
-    | { scope: 'customer'; month: string; customerId: string; customerName: string; count: number }
+    | { scope: 'selected'; month: string; count: number; reportIds: string[] }
     | null
   >(null)
   const [submittingMonth, setSubmittingMonth] = useState(false)
   const [submittingCustomerId, setSubmittingCustomerId] = useState<string | null>(null)
   const [reportToDelete, setReportToDelete] = useState<TimeReport | null>(null)
   const [deletingReportId, setDeletingReportId] = useState<string | null>(null)
-  const monthOptions = buildRecentMonthOptions(24)
+  const monthOptions = buildMonthOptions(36)
+  const [previousMonthDraftCount, setPreviousMonthDraftCount] = useState(0)
 
   useEffect(() => {
     fetchReports()
   }, [selectedStatus, selectedMonth])
+
+  useEffect(() => {
+    void fetchSummaryStats()
+  }, [selectedMonth])
+
+  useEffect(() => {
+    const token = localStorage.getItem('token')
+    if (!token) return
+    const prevMonth = getPreviousMonthKey()
+    fetch(`/api/time-reports?month=${encodeURIComponent(prevMonth)}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data) => {
+        const list = Array.isArray(data) ? data : []
+        setPreviousMonthDraftCount(
+          list.filter((r: { status: string }) => isDraftReportStatus(r.status)).length
+        )
+      })
+      .catch(() => setPreviousMonthDraftCount(0))
+  }, [selectedMonth])
+
+  const fetchSummaryStats = async () => {
+    try {
+      const token = localStorage.getItem('token')
+      if (!token) return
+
+      const params = new URLSearchParams({ month: selectedMonth })
+
+      const headers = { Authorization: `Bearer ${token}` }
+      const [reportsResponse, absencesResponse] = await Promise.all([
+        fetch(`/api/time-reports?${params.toString()}`, { headers }),
+        fetch(`/api/absence-reports?${params.toString()}`, { headers }),
+      ])
+
+      const timeRaw = reportsResponse.ok ? await reportsResponse.json() : []
+      const absenceRaw = absencesResponse.ok ? await absencesResponse.json() : []
+      const timeList: TimeReport[] = Array.isArray(timeRaw) ? timeRaw : []
+      const absenceList: AbsenceReport[] = Array.isArray(absenceRaw) ? absenceRaw : []
+
+      const filedTime = timeList.filter((r) => isFiledReportStatus(r.status))
+      const filedAbsence = absenceList.filter((a) => isFiledReportStatus(a.status))
+
+      setSummaryStats({
+        draftTimeCount: timeList.filter((r) => isDraftReportStatus(r.status)).length,
+        draftAbsenceCount: absenceList.filter((a) => isDraftReportStatus(a.status)).length,
+        filedWorkHours: filedTime.reduce((sum, r) => sum + (r.totalHours || 0), 0),
+        filedAbsenceHours: filedAbsence.reduce(
+          (sum, a) => sum + absenceHoursForPayroll(a.isFullDay, a.hours),
+          0
+        ),
+        filedReportCount: filedTime.length + filedAbsence.length,
+        submittedCount:
+          timeList.filter((r) => r.status === 'SUBMITTED').length +
+          absenceList.filter((a) => a.status === 'SUBMITTED').length,
+        approvedCount:
+          timeList.filter((r) => r.status === 'APPROVED').length +
+          absenceList.filter((a) => a.status === 'APPROVED').length,
+        timeReportCount: timeList.length,
+        absenceReportCount: absenceList.length,
+      })
+    } catch (error) {
+      console.error('Fel vid hämtning av sammanställning:', error)
+    }
+  }
 
   const fetchReports = async () => {
     try {
@@ -86,59 +162,53 @@ export default function MyReportsPage() {
         return
       }
 
-      const params = new URLSearchParams()
-      if (selectedStatus !== 'ALL') {
+      const params = new URLSearchParams({ month: selectedMonth })
+      if (
+        selectedStatus === 'DRAFT' ||
+        selectedStatus === 'SUBMITTED' ||
+        selectedStatus === 'APPROVED'
+      ) {
         params.append('status', selectedStatus)
       }
-      if (selectedMonth !== 'ALL') {
-        params.append('month', selectedMonth)
-      }
 
-      const response = await fetch(`/api/time-reports?${params.toString()}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      })
+      const absenceParams = new URLSearchParams(params)
 
-      if (response.status === 401) {
+      const headers = { Authorization: `Bearer ${token}` }
+      const [reportsResponse, absencesResponse] = await Promise.all([
+        fetch(`/api/time-reports?${params.toString()}`, { headers }),
+        fetch(`/api/absence-reports?${absenceParams.toString()}`, { headers }),
+      ])
+
+      if (reportsResponse.status === 401 || absencesResponse.status === 401) {
         router.push('/login')
         return
       }
 
-      if (response.ok) {
-        const data = await response.json()
-        setReports(data)
+      if (reportsResponse.ok) {
+        const data = await reportsResponse.json()
+        let timeList: TimeReport[] = Array.isArray(data) ? data : []
+        if (selectedStatus === MY_REPORTS_STATUS_ALL_FILED) {
+          timeList = timeList.filter((r) => isFiledReportStatus(r.status))
+        }
+        setReports(timeList)
+      } else {
+        setReports([])
+      }
+
+      if (absencesResponse.ok) {
+        const data = await absencesResponse.json()
+        let absenceList: AbsenceReport[] = Array.isArray(data) ? data : []
+        if (selectedStatus === MY_REPORTS_STATUS_ALL_FILED) {
+          absenceList = absenceList.filter((a) => isFiledReportStatus(a.status))
+        }
+        setAbsences(absenceList)
+      } else {
+        setAbsences([])
       }
     } catch (error) {
       console.error('Fel vid hämtning av rapporter:', error)
     } finally {
       setLoading(false)
-    }
-  }
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'DRAFT':
-        return 'bg-gray-200 text-gray-800'
-      case 'SUBMITTED':
-        return 'bg-yellow-200 text-yellow-800'
-      case 'APPROVED':
-        return 'bg-green-200 text-green-800'
-      default:
-        return 'bg-gray-200 text-gray-800'
-    }
-  }
-
-  const getStatusText = (status: string) => {
-    switch (status) {
-      case 'DRAFT':
-        return 'Utkast'
-      case 'SUBMITTED':
-        return 'Inlämnad'
-      case 'APPROVED':
-        return 'Godkänd'
-      default:
-        return status
     }
   }
 
@@ -155,7 +225,8 @@ export default function MyReportsPage() {
         throw new Error(data.error || 'Kunde inte ta bort tidrapporten')
       }
       setReportToDelete(null)
-      fetchReports()
+      void fetchReports()
+      void fetchSummaryStats()
     } catch (err: unknown) {
       alert(err instanceof Error ? err.message : 'Kunde inte ta bort tidrapporten')
     } finally {
@@ -163,22 +234,23 @@ export default function MyReportsPage() {
     }
   }
 
-  const submitMonth = async (month: string, customerId?: string) => {
+  const submitMonth = async (month: string, opts?: { reportIds?: string[] }) => {
     try {
       setSubmittingMonth(true)
-      if (customerId) setSubmittingCustomerId(customerId)
 
       const token = localStorage.getItem('token')
+      const body: Record<string, unknown> = { month }
+      if (opts?.reportIds && opts.reportIds.length > 0) {
+        body.reportIds = opts.reportIds
+      }
+
       const response = await fetch(`/api/time-reports/submit`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          month,
-          ...(customerId ? { customerId } : {}),
-        }),
+        body: JSON.stringify(body),
       })
 
       if (response.ok) {
@@ -187,9 +259,11 @@ export default function MyReportsPage() {
           title: 'Tidrapporter inskickade',
           message:
             data.message ||
-            'Tidrapporterna har skickats till administratören för granskning.',
+            'Tidrapporterna har skickats till admin. Admin skapar fakturor och skickar till kund.',
         })
-        fetchReports()
+        void fetchReports()
+        void fetchSummaryStats()
+        setSelectedReportIds(new Set())
       } else {
         const data = await response.json()
         alert(data.error || 'Kunde inte skicka in tidrapporter')
@@ -202,12 +276,62 @@ export default function MyReportsPage() {
     }
   }
 
-  const monthGroupedReports =
-    selectedMonth !== 'ALL' ? groupReportsByCustomer(reports) : []
-  const monthDraftCount =
-    selectedMonth !== 'ALL'
-      ? reports.filter((r) => r.status === 'DRAFT').length
-      : 0
+  const monthHasNoReports =
+    summaryStats.timeReportCount + summaryStats.absenceReportCount === 0
+
+  const monthGroupedReports = useMemo(() => {
+    const grouped = groupReportsAsWorkHoursSection(reports)
+    if (grouped.length > 0) return grouped
+    return [
+      {
+        key: 'work-hours',
+        customerId: 'work-hours',
+        customerName: 'Arbetade timmar',
+        reports: [],
+        totalHours: 0,
+        draftCount: 0,
+        submittedCount: 0,
+      },
+    ]
+  }, [reports])
+  const isDraftView = selectedStatus === 'DRAFT'
+  const monthDraftCount = summaryStats.draftTimeCount
+  const totalDraftCount = summaryStats.draftTimeCount + summaryStats.draftAbsenceCount
+
+  const monthReminder = resolveMonthReminder({
+    viewMonth: selectedMonth,
+    draftCountCurrentMonth: monthDraftCount,
+    draftCountPreviousMonth: previousMonthDraftCount,
+  })
+
+  const draftReportIdsForMonth = useMemo(
+    () => reports.filter((r) => r.status === 'DRAFT').map((r) => r.id),
+    [reports]
+  )
+
+  useEffect(() => {
+    setSelectedReportIds(new Set(draftReportIdsForMonth))
+  }, [draftReportIdsForMonth.join(',')])
+
+  const toggleReportSelection = (reportId: string) => {
+    setSelectedReportIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(reportId)) next.delete(reportId)
+      else next.add(reportId)
+      return next
+    })
+  }
+
+  const toggleCustomerDrafts = (_customerId: string, draftIds: string[], checked: boolean) => {
+    setSelectedReportIds((prev) => {
+      const next = new Set(prev)
+      for (const id of draftIds) {
+        if (checked) next.add(id)
+        else next.delete(id)
+      }
+      return next
+    })
+  }
 
   return (
     <div className="app-shell" style={{ backgroundColor: '#E8E8D8', minHeight: '100vh' }}>
@@ -232,10 +356,10 @@ export default function MyReportsPage() {
               onChange={(e) => setSelectedStatus(e.target.value)}
               className="w-full px-4 py-2 border border-gray-300 rounded-md"
             >
-              <option value="ALL">Alla</option>
-              <option value="DRAFT">Utkast</option>
+              <option value={MY_REPORTS_STATUS_ALL_FILED}>Alla (förutom utkast)</option>
               <option value="SUBMITTED">Inlämnade</option>
               <option value="APPROVED">Godkända</option>
+              <option value="DRAFT">Utkast</option>
             </select>
           </div>
           <div>
@@ -245,7 +369,6 @@ export default function MyReportsPage() {
               onChange={(e) => setSelectedMonth(e.target.value)}
               className="w-full px-4 py-2 border border-gray-300 rounded-md"
             >
-              <option value="ALL">Alla månader</option>
               {monthOptions.map((monthKey) => (
                 <option key={monthKey} value={monthKey}>
                   {formatMonthYearSv(monthKey)}
@@ -259,133 +382,108 @@ export default function MyReportsPage() {
           <div className="text-center py-8">
             <p>Laddar rapporter...</p>
           </div>
-        ) : reports.length === 0 ? (
-          <div className="text-center py-8">
-            <p className="text-gray-500">
-              {selectedMonth !== 'ALL'
-                ? `Inga rapporter hittades för ${formatMonthYearSv(selectedMonth)}.`
-                : 'Inga rapporter hittades.'}
-            </p>
-            <Link
-              href="/time-report"
-              className="mt-4 inline-block px-6 py-3 bg-green-600 text-white rounded-md hover:bg-green-700"
-            >
-              Skapa din första rapport
-            </Link>
-          </div>
-        ) : selectedMonth !== 'ALL' ? (
+        ) : (
           <div>
+            {monthReminder ? (
+              <MonthSubmissionReminder
+                message={monthReminder.message}
+                kind={monthReminder.kind}
+              />
+            ) : null}
             <p className="text-sm text-gray-600 mb-4">
-              Tidrapporterna för {formatMonthYearSv(selectedMonth)} är sorterade per kund. Skicka en
-              kundmapp i taget, eller alla utkast på en gång.
+              {isDraftView
+                ? `Utkast för ${formatMonthYearSv(selectedMonth)} — skicka in till admin när du är klar. Frånvaroutkast följer med vid «Skicka alla utkast».`
+                : `Arbetade timmar för ${formatMonthYearSv(selectedMonth)}. Välj «Utkast» i filtret för att skicka in fler.`}
             </p>
             <MonthCustomerReportFolders
               groups={monthGroupedReports}
-              totalDraftCount={monthDraftCount}
-              submitting={submittingMonth}
-              submittingCustomerId={submittingCustomerId}
-              onSubmitAll={() =>
-                setSubmitConfirm({ scope: 'all', month: selectedMonth, count: monthDraftCount })
-              }
-              onSubmitCustomer={(customerId, customerName) => {
-                const count =
-                  monthGroupedReports.find((g) => g.customerId === customerId)?.draftCount ?? 0
+              showProjectColumn
+              emptyListMessage="Inga tidrapporter för det valda filtret."
+              totalDraftCount={isDraftView ? monthDraftCount : 0}
+              selectedReportIds={selectedReportIds}
+              onToggleReport={toggleReportSelection}
+              onToggleCustomerDrafts={toggleCustomerDrafts}
+              onSelectAllDrafts={() => setSelectedReportIds(new Set(draftReportIdsForMonth))}
+              onClearSelection={() => setSelectedReportIds(new Set())}
+              onSubmitSelected={() => {
+                const ids = Array.from(selectedReportIds)
+                if (ids.length === 0) {
+                  alert('Välj minst en tidrapport att skicka in.')
+                  return
+                }
                 setSubmitConfirm({
-                  scope: 'customer',
+                  scope: 'selected',
                   month: selectedMonth,
-                  customerId,
-                  customerName,
-                  count,
+                  count: ids.length,
+                  reportIds: ids,
                 })
               }}
+              onSubmitAllDrafts={() =>
+                setSubmitConfirm({ scope: 'all', month: selectedMonth, count: monthDraftCount })
+              }
+              submitting={submittingMonth}
+              submittingCustomerId={submittingCustomerId}
               onDeleteReport={(r) => {
                 const full = reports.find((rep) => rep.id === r.id)
                 if (full) setReportToDelete(full)
               }}
               deletingReportId={deletingReportId}
             />
-          </div>
-        ) : (
-          <div>
-            <p className="text-sm text-gray-600 mb-4">
-              Välj en månad ovan för att se kundmappar och skicka in tidrapporter.
-            </p>
-            <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Datum</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Kund</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Timmar</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Åtgärder</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {reports.map((report) => (
-                  <tr key={report.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm">
-                      {new Date(report.date).toLocaleDateString('sv-SE')}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm">
-                      {report.customer.name}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm">
-                      {report.totalHours} h
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(report.status)}`}>
-                        {getStatusText(report.status)}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm space-x-3">
-                      <Link
-                        href={`/time-report/${report.id}`}
-                        className="text-green-600 hover:text-green-800 underline font-medium"
-                      >
-                        {report.status === 'DRAFT' ? 'Redigera' : 'Visa'}
-                      </Link>
-                      {report.status === 'DRAFT' && (
-                        <button
-                          type="button"
-                          onClick={() => setReportToDelete(report)}
-                          disabled={deletingReportId === report.id}
-                          className="text-red-600 hover:text-red-800 disabled:opacity-50"
-                        >
-                          {deletingReportId === report.id ? 'Tar bort...' : 'Ta bort'}
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            </div>
+            <MonthAbsenceReportSection
+              absences={absences}
+              showSubmitHint={false}
+              showWhenEmpty
+              emptyMessage="Inga frånvarorapporter för det valda filtret."
+            />
+            {monthHasNoReports ? (
+              <div className="text-center py-6 mt-2">
+                <p className="text-gray-500">
+                  Inga rapporter för {formatMonthYearSv(selectedMonth)} ännu.
+                </p>
+                <Link
+                  href="/time-report"
+                  className="mt-4 inline-block px-6 py-3 bg-green-600 text-white rounded-md hover:bg-green-700"
+                >
+                  Skapa din första rapport
+                </Link>
+              </div>
+            ) : null}
           </div>
         )}
 
-        {reports.length > 0 && (
-          <div className="mt-6 pt-6 border-t border-gray-200">
-            <div className="grid grid-cols-3 gap-4">
-              <div className="bg-gray-50 p-4 rounded">
-                <p className="text-sm text-gray-600">Totalt antal rapporter</p>
-                <p className="text-2xl font-bold">{reports.length}</p>
-              </div>
-              <div className="bg-gray-50 p-4 rounded">
-                <p className="text-sm text-gray-600">Totalt antal timmar</p>
-                <p className="text-2xl font-bold">
-                  {reports.reduce((sum, r) => sum + r.totalHours, 0).toFixed(1)} h
-                </p>
-              </div>
-              <div className="bg-gray-50 p-4 rounded">
-                <p className="text-sm text-gray-600">Utkast</p>
-                <p className="text-2xl font-bold">
-                  {reports.filter(r => r.status === 'DRAFT').length}
-                </p>
-              </div>
+        <div className="mt-6 pt-6 border-t border-gray-200">
+          <p className="text-sm font-medium text-gray-700 mb-3">
+            Statistik för {formatMonthYearSv(selectedMonth)}
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+            <div className="bg-gray-50 p-4 rounded">
+              <p className="text-sm text-gray-600">Arbetade timmar</p>
+              <p className="text-2xl font-bold tabular-nums">
+                {summaryStats.filedWorkHours.toFixed(1)} h
+              </p>
+            </div>
+            <div className="bg-gray-50 p-4 rounded">
+              <p className="text-sm text-gray-600">Frånvaro timmar</p>
+              <p className="text-2xl font-bold tabular-nums">
+                {summaryStats.filedAbsenceHours.toFixed(1)} h
+              </p>
+            </div>
+            <div className="bg-amber-50/80 p-4 rounded border border-amber-100">
+              <p className="text-sm text-gray-600">Utkast</p>
+              <p className="text-2xl font-bold">{totalDraftCount}</p>
+              <p className="text-xs text-gray-600 mt-1">Kvar att skicka in</p>
+            </div>
+            <div className="bg-gray-50 p-4 rounded">
+              <p className="text-sm text-gray-600">Inlämnade</p>
+              <p className="text-2xl font-bold">{summaryStats.submittedCount}</p>
+              <p className="text-xs text-gray-500 mt-1">Väntar på godkännande</p>
+            </div>
+            <div className="bg-green-50/80 p-4 rounded border border-green-100">
+              <p className="text-sm text-gray-600">Godkända</p>
+              <p className="text-2xl font-bold">{summaryStats.approvedCount}</p>
             </div>
           </div>
-        )}
+        </div>
       </div>
 
       <ConfirmDialog
@@ -393,7 +491,7 @@ export default function MyReportsPage() {
         title="Ta bort tidrapport?"
         message={
           reportToDelete
-            ? `Vill du ta bort tidrapporten för ${reportToDelete.customer.name} den ${new Date(reportToDelete.date).toLocaleDateString('sv-SE')}? Detta går inte att ångra.`
+            ? `Vill du ta bort tidrapporten${reportToDelete.project?.name ? ` (${reportToDelete.project.name})` : ''} den ${new Date(reportToDelete.date).toLocaleDateString('sv-SE')}? Detta går inte att ångra.`
             : ''
         }
         confirmLabel="Ja, ta bort"
@@ -408,15 +506,15 @@ export default function MyReportsPage() {
       <ConfirmDialog
         open={submitConfirm !== null}
         title={
-          submitConfirm?.scope === 'customer'
-            ? `Skicka ${submitConfirm.customerName}?`
-            : 'Skicka alla tidrapporter?'
+          submitConfirm?.scope === 'selected'
+            ? 'Skicka valda till admin?'
+            : 'Skicka alla utkast till admin?'
         }
         message={
           submitConfirm
-            ? submitConfirm.scope === 'customer'
-              ? `Du skickar in ${submitConfirm.count} utkast för ${submitConfirm.customerName} (${formatMonthYearSv(submitConfirm.month)}). Fortsätta?`
-              : `Du skickar in alla ${submitConfirm.count} utkast för ${formatMonthYearSv(submitConfirm.month)}. Fortsätta?`
+            ? submitConfirm.scope === 'selected'
+              ? `Du skickar in ${submitConfirm.count} valda tidrapport${submitConfirm.count === 1 ? '' : 'er'} för ${formatMonthYearSv(submitConfirm.month)} till admin. Fortsätta?`
+              : `Du skickar in alla ${submitConfirm.count} utkast (som inte redan är inskickade) för ${formatMonthYearSv(submitConfirm.month)} till admin. Fortsätta?`
             : ''
         }
         confirmLabel="Ja, skicka in"
@@ -425,8 +523,8 @@ export default function MyReportsPage() {
           if (!submitConfirm) return
           const pending = submitConfirm
           setSubmitConfirm(null)
-          if (pending.scope === 'customer') {
-            void submitMonth(pending.month, pending.customerId)
+          if (pending.scope === 'selected') {
+            void submitMonth(pending.month, { reportIds: pending.reportIds })
           } else {
             void submitMonth(pending.month)
           }
