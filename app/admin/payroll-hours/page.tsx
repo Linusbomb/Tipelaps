@@ -20,6 +20,8 @@ type OvertimeDetail = {
   customerName: string
   totalHours: number
   overtimeHours: number
+  isHolidayWork?: boolean
+  overtimeLabel?: string | null
   timeRanges: string[]
 }
 
@@ -68,6 +70,7 @@ interface Row {
 
 interface Summary {
   month: string
+  redDaysInMonth?: Array<{ date: string; name: string }>
   employees: Row[]
   totals: {
     inskickadeTimmar: number
@@ -243,7 +246,8 @@ export default function PayrollHoursPage() {
         <div>
           <h1 className="app-title text-gray-900">Arbetstid för lön</h1>
           <p className="text-gray-600 mt-1">
-            Totalt antal timmar per anställd per månad. Övertid = tid över 8 h per dag eller arbete utanför 07:00-16:00.
+            Totalt antal timmar per anställd per månad. Övertid på vardag = över 8 h eller utanför 07:00–16:00.
+            Arbete på helg eller röd dag räknas som övertid (arbete på helgdag).
           </p>
         </div>
         <div className="flex items-center gap-4 shrink-0">
@@ -313,6 +317,19 @@ export default function PayrollHoursPage() {
             </button>
           </div>
         </div>
+
+        {summary?.redDaysInMonth && summary.redDaysInMonth.length > 0 ? (
+          <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-950">
+            <p className="font-semibold">
+              Röda dagar i {monthLabelSv(ym)} ({summary.redDaysInMonth.length} st)
+            </p>
+            <p className="mt-1 text-xs sm:text-sm">
+              {summary.redDaysInMonth
+                .map((d) => `${d.name} (${d.date.slice(8, 10)}/${d.date.slice(5, 7)})`)
+                .join(' · ')}
+            </p>
+          </div>
+        ) : null}
 
         <p className="text-sm text-gray-500 mt-4">
           CSV-filen sammanställer <strong>endast godkända</strong> tidrapporter (lämpligt för löneunderlag).
@@ -488,6 +505,7 @@ export default function PayrollHoursPage() {
                                 <div key={detail.reportId}>
                                   <div className="font-medium">
                                     {detail.date} · {detail.customerName} · total {formatHours(detail.totalHours)} h · övertid {formatHours(detail.overtimeHours)} h
+                                    {detail.overtimeLabel ? ` · ${detail.overtimeLabel}` : ''}
                                   </div>
                                   <ul className="list-disc pl-5 text-gray-600">
                                     {detail.timeRanges.map((range, idx) => (

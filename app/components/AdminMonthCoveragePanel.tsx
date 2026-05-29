@@ -1,11 +1,21 @@
 'use client'
 
-import { Fragment, useState } from 'react'
+import { Fragment, useMemo, useState } from 'react'
 import Link from 'next/link'
 import type { DayCoverage, MonthCoverageSummary } from '@/lib/monthDayCoverage'
 import { countTimeReportWeekdays, formatCoverageDateSv } from '@/lib/monthDayCoverage'
 import { formatMonthYearSv } from '@/lib/monthReporting'
-import MonthCoverageMiniCalendar from '@/app/components/MonthCoverageMiniCalendar'
+import {
+  filterCoverageAbsencesOnDate,
+  filterCoverageTimeReportsOnDate,
+  type CoverageMonthAbsence,
+  type CoverageMonthTimeReport,
+} from '@/lib/monthCoverageRegistrations'
+import CoverageDayDetailModal from '@/app/components/CoverageDayDetailModal'
+import CoverageRegisterDayModal from '@/app/components/CoverageRegisterDayModal'
+import MonthCoverageMiniCalendar, {
+  CoverageLegendSwatch,
+} from '@/app/components/MonthCoverageMiniCalendar'
 
 type EmployeeCoverage = {
   userId: string
@@ -14,6 +24,8 @@ type EmployeeCoverage = {
   days: DayCoverage[]
   warnings: DayCoverage[]
   hasWarnings: boolean
+  timeReports?: CoverageMonthTimeReport[]
+  absences?: CoverageMonthAbsence[]
 }
 
 type AdminMonthCoveragePanelProps = {
@@ -24,7 +36,9 @@ type AdminMonthCoveragePanelProps = {
     employeesWithIssues: number
     totalMissingWeekdays: number
     totalPartialWeekdays: number
+    redDayCount?: number
   }
+  redDaysInMonth?: Array<{ date: string; name: string }>
   loading?: boolean
 }
 
@@ -32,10 +46,36 @@ export default function AdminMonthCoveragePanel({
   month,
   employees,
   companySummary,
+  redDaysInMonth = [],
   loading = false,
 }: AdminMonthCoveragePanelProps) {
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [onlyWithIssues, setOnlyWithIssues] = useState(false)
+  const [dayDetail, setDayDetail] = useState<{
+    dateKey: string
+    userId: string
+  } | null>(null)
+  const [registerDay, setRegisterDay] = useState<{
+    dateKey: string
+    userId: string
+  } | null>(null)
+
+  const detailEmployee = dayDetail
+    ? employees.find((employee) => employee.userId === dayDetail.userId)
+    : null
+
+  const selectedDayReports = useMemo(() => {
+    if (!dayDetail || !detailEmployee) return []
+    return filterCoverageTimeReportsOnDate(
+      detailEmployee.timeReports ?? [],
+      dayDetail.dateKey
+    )
+  }, [dayDetail, detailEmployee])
+
+  const selectedDayAbsences = useMemo(() => {
+    if (!dayDetail || !detailEmployee) return []
+    return filterCoverageAbsencesOnDate(detailEmployee.absences ?? [], dayDetail.dateKey)
+  }, [dayDetail, detailEmployee])
 
   if (loading) {
     return (
@@ -51,6 +91,7 @@ export default function AdminMonthCoveragePanel({
     : employees
 
   return (
+    <>
     <div className="mb-8 rounded-xl border-2 border-gray-200 bg-white overflow-hidden shadow-sm">
       <div
         className="px-4 py-4 border-b border-gray-200"
@@ -64,7 +105,7 @@ export default function AdminMonthCoveragePanel({
         </p>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 border-b border-gray-100">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 p-4 border-b border-gray-100">
         <div className="rounded-lg bg-gray-50 px-3 py-2">
           <p className="text-xs text-gray-600">Personal</p>
           <p className="text-xl font-bold">{companySummary.employeeCount}</p>
@@ -84,7 +125,23 @@ export default function AdminMonthCoveragePanel({
           <p className="text-xl font-bold">{companySummary.employeesWithIssues}</p>
           <p className="text-[10px] text-gray-500">anställda</p>
         </div>
+        <div className="rounded-lg bg-red-50 px-3 py-2 border border-red-100">
+          <p className="text-xs text-red-800">Röda dagar</p>
+          <p className="text-xl font-bold text-red-900">
+            {companySummary.redDayCount ?? redDaysInMonth.length}
+          </p>
+          <p className="text-[10px] text-red-700">i månaden</p>
+        </div>
       </div>
+
+      {redDaysInMonth.length > 0 ? (
+        <div className="mx-4 mt-3 rounded-lg border border-red-200 bg-red-50/80 px-4 py-2.5 text-sm text-red-950">
+          <p className="font-semibold">Röda dagar {formatMonthYearSv(month)}</p>
+          <p className="mt-1 text-xs sm:text-sm">
+            {redDaysInMonth.map((d) => `${d.name} (${d.date.slice(8, 10)}/${d.date.slice(5, 7)})`).join(' · ')}
+          </p>
+        </div>
+      ) : null}
 
       {hasCompanyWarnings ? (
         <div className="mx-4 mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-950">
@@ -115,16 +172,28 @@ export default function AdminMonthCoveragePanel({
         </label>
         <div className="flex flex-wrap gap-2 text-[10px] text-gray-600 ml-auto">
           <span className="inline-flex items-center gap-1">
-            <span className="w-2.5 h-2.5 rounded bg-green-100 border border-green-300" /> Tidrapport
+            <CoverageLegendSwatch colorClass="bg-white border-gray-300" className="w-2.5 h-2.5" /> Inget
           </span>
           <span className="inline-flex items-center gap-1">
-            <span className="w-2.5 h-2.5 rounded bg-red-100 border border-red-300" /> Saknas
+            <CoverageLegendSwatch colorClass="bg-green-300 border-green-500" className="w-2.5 h-2.5" />{' '}
+            8 h+
           </span>
           <span className="inline-flex items-center gap-1">
-            <span className="w-2.5 h-2.5 rounded bg-amber-100 border border-amber-300" /> Under 8 h
+            <CoverageLegendSwatch colorClass="bg-yellow-200 border-yellow-500" className="w-2.5 h-2.5" />{' '}
+            Under 8 h
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <CoverageLegendSwatch colorClass="bg-violet-200 border-violet-400" className="w-2.5 h-2.5" />{' '}
+            Frånvaro
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <CoverageLegendSwatch colorClass="bg-red-100 border-red-300" className="w-2.5 h-2.5" /> Röd dag
           </span>
           <span className="inline-flex items-center gap-1">
             <span className="w-2.5 h-2.5 rounded bg-blue-50 border border-blue-200" /> Utkast
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <CoverageLegendSwatch colorClass="bg-gray-50 border-gray-200" className="w-2.5 h-2.5" /> Helg
           </span>
         </div>
       </div>
@@ -194,6 +263,12 @@ export default function AdminMonthCoveragePanel({
                       days={employee.days}
                       variant="admin"
                       forUserId={employee.userId}
+                      onRegisteredDayClick={(dateKey) =>
+                        setDayDetail({ dateKey, userId: employee.userId })
+                      }
+                      onEmptyDayClick={(dateKey) =>
+                        setRegisterDay({ dateKey, userId: employee.userId })
+                      }
                     />
                     <div className="text-sm flex-1 min-w-0">
                       {employee.warnings.length > 0 ? (
@@ -229,5 +304,24 @@ export default function AdminMonthCoveragePanel({
         </div>
       )}
     </div>
+
+    <CoverageDayDetailModal
+      open={dayDetail !== null}
+      dateKey={dayDetail?.dateKey ?? ''}
+      timeReports={selectedDayReports}
+      absences={selectedDayAbsences}
+      forUserId={dayDetail?.userId}
+      subjectName={detailEmployee?.name}
+      adminView
+      onClose={() => setDayDetail(null)}
+    />
+
+    <CoverageRegisterDayModal
+      open={registerDay !== null}
+      dateKey={registerDay?.dateKey ?? ''}
+      forUserId={registerDay?.userId}
+      onClose={() => setRegisterDay(null)}
+    />
+    </>
   )
 }

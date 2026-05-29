@@ -79,9 +79,9 @@ export function monthReportStatusLabel(status: string) {
 }
 
 export function monthReportStatusBadgeClass(status: string) {
-  if (status === 'APPROVED') return 'bg-green-100 text-green-900'
-  if (status === 'SUBMITTED') return 'bg-amber-100 text-amber-950'
-  return 'bg-gray-100 text-gray-800'
+  if (status === 'APPROVED') return 'bg-green-200 text-green-950 ring-1 ring-green-500'
+  if (status === 'SUBMITTED') return 'bg-amber-100 text-amber-950 ring-1 ring-amber-400'
+  return 'bg-blue-100 text-blue-900 ring-1 ring-blue-300'
 }
 
 export function isMonthReportDraft(status: string) {

@@ -8,8 +8,10 @@ import {
   buildHoursByDate,
   buildMonthDayCoverage,
   coverageHasWarnings,
+  monthDateRange,
   warningDaysFromCoverage,
 } from '@/lib/monthDayCoverage'
+import { getWeekdaySwedishPublicHolidaysInMonth } from '@/lib/swedishPublicHolidays'
 import { toMonthKey } from '@/lib/monthReporting'
 
 export const dynamic = 'force-dynamic'
@@ -71,18 +73,46 @@ export async function GET(request: NextRequest) {
           employeesWithIssues: 0,
           totalMissingWeekdays: 0,
           totalPartialWeekdays: 0,
+          redDayCount: 0,
         },
+        redDaysInMonth: getWeekdaySwedishPublicHolidaysInMonth(month),
       })
     }
 
+    const dateRange = monthDateRange(month)
+
     const [timeReports, absences] = await Promise.all([
       prisma.timeReport.findMany({
-        where: { userId: { in: employeeIds }, month },
-        select: { userId: true, date: true, totalHours: true, status: true },
+        where: {
+          userId: { in: employeeIds },
+          date: { gte: dateRange.gte, lt: dateRange.lt },
+        },
+        select: {
+          id: true,
+          userId: true,
+          date: true,
+          totalHours: true,
+          status: true,
+          customer: { select: { name: true } },
+        },
+        orderBy: [{ date: 'asc' }, { createdAt: 'asc' }],
       }),
       prisma.absenceReport.findMany({
-        where: { userId: { in: employeeIds }, month },
-        select: { userId: true, date: true, isFullDay: true, hours: true, status: true },
+        where: {
+          userId: { in: employeeIds },
+          date: { gte: dateRange.gte, lt: dateRange.lt },
+        },
+        select: {
+          id: true,
+          userId: true,
+          date: true,
+          type: true,
+          isFullDay: true,
+          hours: true,
+          status: true,
+          note: true,
+        },
+        orderBy: [{ date: 'asc' }, { createdAt: 'asc' }],
       }),
     ])
 
@@ -106,13 +136,12 @@ export async function GET(request: NextRequest) {
     const employeeCoverage = employees.map((employee) => {
       const userTime = timeByUser.get(employee.id) ?? []
       const userAbsence = absenceByUser.get(employee.id) ?? []
-      const { datesWithTimeReport, datesWithDraft } = buildCoverageDraftDateSets(
-        userTime,
-        userAbsence
-      )
+      const { datesWithTimeReport, datesWithAbsence, datesWithDraft } =
+        buildCoverageDraftDateSets(userTime, userAbsence)
       const hoursByDate = buildHoursByDate(userTime, userAbsence)
       const { days, summary } = buildMonthDayCoverage(month, hoursByDate, {
         datesWithTimeReport,
+        datesWithAbsence,
         datesWithDraft,
       })
       const warnings = warningDaysFromCoverage(days)
@@ -129,18 +158,24 @@ export async function GET(request: NextRequest) {
         days,
         warnings,
         hasWarnings,
+        timeReports: userTime,
+        absences: userAbsence,
       }
     })
+
+    const redDaysInMonth = getWeekdaySwedishPublicHolidaysInMonth(month)
 
     return NextResponse.json({
       month,
       standardDayHours: STANDARD_WORK_DAY_HOURS,
+      redDaysInMonth,
       employees: employeeCoverage,
       companySummary: {
         employeeCount: employees.length,
         employeesWithIssues,
         totalMissingWeekdays,
         totalPartialWeekdays,
+        redDayCount: redDaysInMonth.length,
       },
     })
   } catch (error) {

@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import { usePathname } from 'next/navigation'
 import { useLanguage } from '@/contexts/LanguageContext'
 import Link from 'next/link'
 import OverviewStatisticsSubNav, {
@@ -11,6 +12,10 @@ import MonthSubmissionReminder from '@/app/components/MonthSubmissionReminder'
 import MonthDayCoveragePanel from '@/app/components/MonthDayCoveragePanel'
 import AdminMonthCoveragePanel from '@/app/components/AdminMonthCoveragePanel'
 import type { DayCoverage, MonthCoverageSummary } from '@/lib/monthDayCoverage'
+import type {
+  CoverageMonthAbsence,
+  CoverageMonthTimeReport,
+} from '@/lib/monthCoverageRegistrations'
 import {
   getPreviousMonthKey,
   resolveMonthReminder,
@@ -44,6 +49,7 @@ function isAdminRole(role: string | null) {
 
 export default function DashboardPage() {
   const { t } = useLanguage()
+  const pathname = usePathname()
   const [userRole, setUserRole] = useState<string | null>(null)
   const [selectedMonthDate, setSelectedMonthDate] = useState<Date | null>(new Date())
   const [showMonthModal, setShowMonthModal] = useState(false)
@@ -61,6 +67,8 @@ export default function DashboardPage() {
     summary: MonthCoverageSummary
     warnings: DayCoverage[]
     hasWarnings: boolean
+    timeReports: CoverageMonthTimeReport[]
+    absences: CoverageMonthAbsence[]
   } | null>(null)
   const [adminCoverage, setAdminCoverage] = useState<{
     employees: Array<{
@@ -70,13 +78,17 @@ export default function DashboardPage() {
       days: DayCoverage[]
       warnings: DayCoverage[]
       hasWarnings: boolean
+      timeReports?: CoverageMonthTimeReport[]
+      absences?: CoverageMonthAbsence[]
     }>
     companySummary: {
       employeeCount: number
       employeesWithIssues: number
       totalMissingWeekdays: number
       totalPartialWeekdays: number
+      redDayCount?: number
     }
+    redDaysInMonth: Array<{ date: string; name: string }>
   } | null>(null)
   const [previousMonthDraftCount, setPreviousMonthDraftCount] = useState(0)
   const [dashboardTab, setDashboardTab] = useState<DashboardViewTab>('overview')
@@ -116,30 +128,29 @@ export default function DashboardPage() {
   const isAdmin = isAdminRole(userRole)
 
   useEffect(() => {
-    if (userRole === null) return
-    const admin = isAdminRole(userRole)
-    fetchStats(admin)
-    void fetchMonthCoverage(admin)
-    if (!admin) {
-      const token = localStorage.getItem('token')
-      if (token) {
-        const prevMonth = getPreviousMonthKey()
-        fetch(`/api/time-reports?month=${encodeURIComponent(prevMonth)}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        })
-          .then((res) => (res.ok ? res.json() : []))
-          .then((data) => {
-            const list = Array.isArray(data) ? data : []
-            setPreviousMonthDraftCount(
-              list.filter((r: { status: string }) => r.status === 'DRAFT').length
-            )
-          })
-          .catch(() => setPreviousMonthDraftCount(0))
-      }
+    if (typeof window === 'undefined' || pathname !== '/dashboard') return
+    const params = new URLSearchParams(window.location.search)
+    const monthParam = params.get('month')
+    const dateParam = params.get('date')
+    const storedMonth = sessionStorage.getItem('timelaps:lastReportMonth')
+    const monthKey =
+      monthParam && /^\d{4}-\d{2}$/.test(monthParam)
+        ? monthParam
+        : dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam)
+          ? dateParam.slice(0, 7)
+          : storedMonth && /^\d{4}-\d{2}$/.test(storedMonth)
+            ? storedMonth
+            : null
+    if (monthKey) {
+      const [y, m] = monthKey.split('-').map(Number)
+      setSelectedMonthDate(new Date(y, m - 1, 1))
     }
-  }, [selectedMonth, userRole])
+    if (storedMonth) {
+      sessionStorage.removeItem('timelaps:lastReportMonth')
+    }
+  }, [pathname])
 
-  const fetchStats = async (admin: boolean) => {
+  const fetchStats = useCallback(async (admin: boolean) => {
     try {
       setLoading(true)
       const token = localStorage.getItem('token')
@@ -201,9 +212,9 @@ export default function DashboardPage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [selectedMonth])
 
-  const fetchMonthCoverage = async (admin: boolean) => {
+  const fetchMonthCoverage = useCallback(async (admin: boolean) => {
     try {
       setCoverageLoading(true)
       const token = localStorage.getItem('token')
@@ -232,7 +243,9 @@ export default function DashboardPage() {
             employeesWithIssues: 0,
             totalMissingWeekdays: 0,
             totalPartialWeekdays: 0,
+            redDayCount: 0,
           },
+          redDaysInMonth: Array.isArray(data.redDaysInMonth) ? data.redDaysInMonth : [],
         })
         setMonthCoverage(null)
       } else {
@@ -244,9 +257,12 @@ export default function DashboardPage() {
             missing: 0,
             future: 0,
             weekend: 0,
+            redDay: 0,
           },
           warnings: data.warnings ?? [],
           hasWarnings: Boolean(data.hasWarnings),
+          timeReports: Array.isArray(data.timeReports) ? data.timeReports : [],
+          absences: Array.isArray(data.absences) ? data.absences : [],
         })
         setAdminCoverage(null)
       }
@@ -257,7 +273,31 @@ export default function DashboardPage() {
     } finally {
       setCoverageLoading(false)
     }
-  }
+  }, [selectedMonth])
+
+  useEffect(() => {
+    if (userRole === null || pathname !== '/dashboard') return
+    const admin = isAdminRole(userRole)
+    void fetchStats(admin)
+    void fetchMonthCoverage(admin)
+    if (!admin) {
+      const token = localStorage.getItem('token')
+      if (token) {
+        const prevMonth = getPreviousMonthKey()
+        fetch(`/api/time-reports?month=${encodeURIComponent(prevMonth)}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+          .then((res) => (res.ok ? res.json() : []))
+          .then((data) => {
+            const list = Array.isArray(data) ? data : []
+            setPreviousMonthDraftCount(
+              list.filter((r: { status: string }) => r.status === 'DRAFT').length
+            )
+          })
+          .catch(() => setPreviousMonthDraftCount(0))
+      }
+    }
+  }, [selectedMonth, userRole, pathname, fetchStats, fetchMonthCoverage])
 
   const monthLabel = new Date(`${selectedMonth}-01`).toLocaleDateString('sv-SE', {
     month: 'long',
@@ -347,17 +387,24 @@ export default function DashboardPage() {
 
         {dashboardTab === 'overview' && coverageLoading ? (
           isAdmin ? (
-            <AdminMonthCoveragePanel month={selectedMonth} employees={[]} companySummary={{
-              employeeCount: 0,
-              employeesWithIssues: 0,
-              totalMissingWeekdays: 0,
-              totalPartialWeekdays: 0,
-            }} loading />
+            <AdminMonthCoveragePanel
+              month={selectedMonth}
+              employees={[]}
+              companySummary={{
+                employeeCount: 0,
+                employeesWithIssues: 0,
+                totalMissingWeekdays: 0,
+                totalPartialWeekdays: 0,
+                redDayCount: 0,
+              }}
+              redDaysInMonth={[]}
+              loading
+            />
           ) : (
             <MonthDayCoveragePanel
               month={selectedMonth}
               days={[]}
-              summary={{ complete: 0, partial: 0, missing: 0, future: 0, weekend: 0 }}
+              summary={{ complete: 0, partial: 0, missing: 0, future: 0, weekend: 0, redDay: 0 }}
               warnings={[]}
               hasWarnings={false}
               loading
@@ -368,6 +415,7 @@ export default function DashboardPage() {
             month={selectedMonth}
             employees={adminCoverage.employees}
             companySummary={adminCoverage.companySummary}
+            redDaysInMonth={adminCoverage.redDaysInMonth}
           />
         ) : dashboardTab === 'overview' && !isAdmin && monthCoverage ? (
           <MonthDayCoveragePanel
@@ -376,6 +424,8 @@ export default function DashboardPage() {
             summary={monthCoverage.summary}
             warnings={monthCoverage.warnings}
             hasWarnings={monthCoverage.hasWarnings}
+            timeReports={monthCoverage.timeReports}
+            absences={monthCoverage.absences}
           />
         ) : null}
 

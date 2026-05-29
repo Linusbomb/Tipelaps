@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { verifyToken } from '@/lib/auth'
-import { parseDateOnlyLocal } from '@/lib/parseDateOnlyLocal'
+import { parseDateOnlyToStorage } from '@/lib/parseDateOnlyLocal'
+import { monthDateRange } from '@/lib/monthDayCoverage'
 import { isBuyerReferenceUnsupported } from '@/lib/prismaCompat'
 import { persistReportOvertimeHours } from '@/lib/overtime'
 import { resolveTimeReportSubject } from '@/lib/timeReportSubject'
@@ -35,11 +36,15 @@ export async function GET(request: NextRequest) {
     const subject = await resolveTimeReportSubject(userId, forUserIdParam ?? userId)
     if (!subject.ok) return subject.response
 
+    const dateRange = month ? monthDateRange(month) : null
+
     const reports = await prisma.timeReport.findMany({
       where: {
         userId: subject.reportUserId,
         ...(status && status !== 'ALL' ? { status } : {}),
-        ...(month ? { month } : {}),
+        ...(dateRange
+          ? { date: { gte: dateRange.gte, lt: dateRange.lt } }
+          : {}),
       },
       include: {
         customer: {
@@ -167,8 +172,8 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const reportDate = parseDateOnlyLocal(String(date))
-    const month = `${reportDate.getFullYear()}-${String(reportDate.getMonth() + 1).padStart(2, '0')}`
+    const reportDate = parseDateOnlyToStorage(String(date))
+    const month = `${reportDate.getUTCFullYear()}-${String(reportDate.getUTCMonth() + 1).padStart(2, '0')}`
 
     const buyerRefTrimmed =
       typeof buyerReference === 'string' && buyerReference.trim() ? buyerReference.trim() : null
@@ -180,7 +185,7 @@ export async function POST(request: NextRequest) {
           customerId,
           projectId: validProjectId,
           date: reportDate,
-          year: reportDate.getFullYear(),
+          year: reportDate.getUTCFullYear(),
           totalHours,
           customerTotalHours: totalHours,
           missingHoursReason: remainingHours > 0 ? String(missingHoursReason).trim() : null,
@@ -223,7 +228,7 @@ export async function POST(request: NextRequest) {
       report = await createReport(false)
     }
 
-    await persistReportOvertimeHours(report.id, totalHours, cleanedEntries)
+    await persistReportOvertimeHours(report.id, totalHours, cleanedEntries, reportDate)
     await persistTimeEntryClockTimes(report.entries, cleanedEntries)
 
     return NextResponse.json(report, { status: 201 })

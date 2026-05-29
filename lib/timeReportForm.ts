@@ -1,3 +1,5 @@
+import { formatCalendarDateKey } from '@/lib/parseDateOnlyLocal'
+
 export type TimeReportEntryRow = {
   hours: number
   description: string
@@ -99,8 +101,14 @@ export function addDaysToIsoDate(isoDate: string, days: number): string {
 }
 
 export function normalizeReportDate(date: string | Date): string {
-  if (typeof date === 'string') return date.slice(0, 10)
-  return new Date(date).toISOString().slice(0, 10)
+  if (typeof date === 'string') {
+    const trimmed = date.trim()
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed
+    const parsed = new Date(trimmed)
+    if (!Number.isNaN(parsed.getTime())) return formatCalendarDateKey(parsed)
+    return trimmed.slice(0, 10)
+  }
+  return formatCalendarDateKey(date)
 }
 
 export function findReportForDate<T extends { date: string | Date; createdAt?: string | Date }>(

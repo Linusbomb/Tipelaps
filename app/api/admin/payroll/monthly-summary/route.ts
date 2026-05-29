@@ -3,7 +3,8 @@ import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { verifyToken } from '@/lib/auth'
 import { absenceHoursForPayroll, absenceTypeLabel } from '@/lib/absence'
-import { computeOvertimeHours } from '@/lib/overtime'
+import { computeOvertime, HOLIDAY_WORK_OVERTIME_LABEL } from '@/lib/overtime'
+import { getWeekdaySwedishPublicHolidaysInMonth } from '@/lib/swedishPublicHolidays'
 import { getPayrollStaffForCompany } from '@/lib/payrollStaff'
 
 export const dynamic = 'force-dynamic'
@@ -55,7 +56,7 @@ export async function GET(request: NextRequest) {
         userId: { in: staffIds },
         status: { in: ['SUBMITTED', 'APPROVED'] },
       },
-      select: { id: true, userId: true, totalHours: true, status: true },
+      select: { id: true, userId: true, totalHours: true, status: true, date: true },
     })
 
     const overtimeRows =
@@ -142,6 +143,8 @@ export async function GET(request: NextRequest) {
           customerName: string
           totalHours: number
           overtimeHours: number
+          isHolidayWork: boolean
+          overtimeLabel: string | null
           timeRanges: string[]
         }>
       }
@@ -174,6 +177,7 @@ export async function GET(request: NextRequest) {
         status: string
         totalHours: number
         overtimeHours: number
+        isHolidayWork: boolean
         timeRanges: string[]
       }
     >()
@@ -189,6 +193,7 @@ export async function GET(request: NextRequest) {
           status: row.status,
           totalHours: Number(row.totalHours) || 0,
           overtimeHours: 0,
+          isHolidayWork: false,
           timeRanges: [],
         }
       const range =
@@ -200,21 +205,24 @@ export async function GET(request: NextRequest) {
     }
 
     for (const detail of Array.from(overtimeByReport.values())) {
-      detail.overtimeHours = computeOvertimeHours(
-        detail.totalHours,
-        detail.timeRanges.map((range) => {
-          const match = range.match(/^([0-2]\d:[0-5]\d|\?)-([0-2]\d:[0-5]\d|\?)/)
-          return {
-            startTime: match?.[1] !== '?' ? match?.[1] : null,
-            endTime: match?.[2] !== '?' ? match?.[2] : null,
-          }
-        })
-      )
+      const entryLike = detail.timeRanges.map((range) => {
+        const match = range.match(/^([0-2]\d:[0-5]\d|\?)-([0-2]\d:[0-5]\d|\?)/)
+        return {
+          startTime: match?.[1] !== '?' ? match?.[1] : null,
+          endTime: match?.[2] !== '?' ? match?.[2] : null,
+        }
+      })
+      const ot = computeOvertime(detail.totalHours, entryLike, detail.date)
+      detail.overtimeHours = ot.hours
+      detail.isHolidayWork = ot.isHolidayWork
     }
 
     for (const r of reports) {
       const agg = ensureUser(r.userId)
-      const ot = overtimeByReport.get(r.id)?.overtimeHours ?? computeOvertimeHours(r.totalHours)
+      const reportDateKey = r.date.toISOString().slice(0, 10)
+      const ot =
+        overtimeByReport.get(r.id)?.overtimeHours ??
+        computeOvertime(r.totalHours, [], reportDateKey).hours
       agg.inskickadeTimmar += r.totalHours
       agg.overtidInskickad += ot
       agg.rapportCountInskickad += 1
@@ -234,6 +242,8 @@ export async function GET(request: NextRequest) {
         customerName: detail.customerName,
         totalHours: Math.round(detail.totalHours * 100) / 100,
         overtimeHours: Math.round(detail.overtimeHours * 100) / 100,
+        isHolidayWork: detail.isHolidayWork,
+        overtimeLabel: detail.isHolidayWork ? HOLIDAY_WORK_OVERTIME_LABEL : null,
         timeRanges: detail.timeRanges,
       })
     }
@@ -313,8 +323,11 @@ export async function GET(request: NextRequest) {
     const totalAbsenceSubmitted = employees.reduce((s, e) => s + e.absenceHoursSubmitted, 0)
     const totalAbsenceApproved = employees.reduce((s, e) => s + e.absenceHoursApproved, 0)
 
+    const redDaysInMonth = getWeekdaySwedishPublicHolidaysInMonth(month)
+
     return NextResponse.json({
       month,
+      redDaysInMonth,
       employees,
       totals: {
         inskickadeTimmar: Math.round(totalInskickat * 100) / 100,

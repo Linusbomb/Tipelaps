@@ -1,4 +1,9 @@
 import { prisma } from '@/lib/prisma'
+import {
+  HOLIDAY_WORK_OVERTIME_LABEL,
+  isHolidayOrWeekendWorkDate,
+} from '@/lib/swedishPublicHolidays'
+export { HOLIDAY_WORK_OVERTIME_LABEL }
 
 type OvertimeEntryLike = {
   hours?: number | null
@@ -50,6 +55,25 @@ function outsideNormalWorkHours(startTime: string | null | undefined, endTime: s
   return Math.round(((duration - normalMinutes) / 60) * 100) / 100
 }
 
+export type OvertimeResult = {
+  hours: number
+  /** Hela dagen räknas som övertid (helg eller röd dag). */
+  isHolidayWork: boolean
+}
+
+/** Övertid = helg/röd dag (alla timmar) eller vardag över 8 h / utanför 07:00–16:00. */
+export function computeOvertime(
+  totalHours: number,
+  entries: OvertimeEntryLike[] = [],
+  reportDate?: Date | string | null
+): OvertimeResult {
+  if (reportDate != null && isHolidayOrWeekendWorkDate(reportDate)) {
+    const hours = Math.round(Math.max(0, totalHours) * 100) / 100
+    return { hours, isHolidayWork: true }
+  }
+  return { hours: computeOvertimeHours(totalHours, entries), isHolidayWork: false }
+}
+
 /** Övertid = arbetstid över 8 h och/eller arbetstid utanför 07:00-16:00. */
 export function computeOvertimeHours(totalHours: number, entries: OvertimeEntryLike[] = []): number {
   const dailyOvertime =
@@ -75,9 +99,10 @@ export function formatOvertimeHours(hours: number): string {
 export async function persistReportOvertimeHours(
   reportId: string,
   totalHours: number,
-  entries: OvertimeEntryLike[] = []
+  entries: OvertimeEntryLike[] = [],
+  reportDate?: Date | string | null
 ): Promise<void> {
-  const overtimeHours = computeOvertimeHours(totalHours, entries)
+  const overtimeHours = computeOvertime(totalHours, entries, reportDate).hours
   await prisma.$executeRaw`
     UPDATE "TimeReport" SET "overtimeHours" = ${overtimeHours} WHERE "id" = ${reportId}
   `
@@ -87,10 +112,20 @@ export async function persistReportOvertimeHours(
 export function resolveOvertimeHours(
   stored: number | null | undefined,
   totalHours: number,
-  entries: OvertimeEntryLike[] = []
+  entries: OvertimeEntryLike[] = [],
+  reportDate?: Date | string | null
 ): number {
-  const computed = computeOvertimeHours(totalHours, entries)
+  const computed = computeOvertime(totalHours, entries, reportDate).hours
   if (stored == null || !Number.isFinite(stored)) return computed
   if (stored > 0) return stored
   return computed
+}
+
+export function isHolidayWorkOvertime(
+  totalHours: number,
+  entries: OvertimeEntryLike[] = [],
+  reportDate?: Date | string | null
+): boolean {
+  if (reportDate == null) return false
+  return computeOvertime(totalHours, entries, reportDate).isHolidayWork
 }

@@ -286,7 +286,7 @@ export async function PUT(
       updatedReport = await updateReport(false)
     }
 
-    await persistReportOvertimeHours(id, totalHours, cleanedRows)
+    await persistReportOvertimeHours(id, totalHours, cleanedRows, reportDate)
     await persistTimeEntryClockTimes(updatedReport.entries, cleanedRows)
 
     return NextResponse.json({

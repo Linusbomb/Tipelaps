@@ -1,5 +1,6 @@
 import {
   formatOvertimeHours,
+  HOLIDAY_WORK_OVERTIME_LABEL,
   NORMAL_WORK_END,
   NORMAL_WORK_START,
   STANDARD_DAY_HOURS,
@@ -7,11 +8,12 @@ import {
 
 type Props = {
   overtimeHours: number
+  isHolidayWork?: boolean
   className?: string
 }
 
 /** Visar övertid enligt svensk arbetstidsregel. */
-export default function OvertimeSummary({ overtimeHours, className = '' }: Props) {
+export default function OvertimeSummary({ overtimeHours, isHolidayWork = false, className = '' }: Props) {
   if (!Number.isFinite(overtimeHours) || overtimeHours <= 0) return null
 
   return (
@@ -21,10 +23,12 @@ export default function OvertimeSummary({ overtimeHours, className = '' }: Props
     >
       <p className="font-semibold text-amber-900">
         {formatOvertimeHours(overtimeHours)} timmar övertid
+        {isHolidayWork ? ` — ${HOLIDAY_WORK_OVERTIME_LABEL}` : ''}
       </p>
       <p className="mt-0.5 text-amber-800/90">
-        Övertid räknas för tid över {STANDARD_DAY_HOURS} h per dag och arbetad tid utanför{' '}
-        {NORMAL_WORK_START}-{NORMAL_WORK_END}.
+        {isHolidayWork
+          ? 'Hela arbetstiden på helg eller röd dag räknas som övertid mot lön.'
+          : `Övertid räknas för tid över ${STANDARD_DAY_HOURS} h per dag och arbetad tid utanför ${NORMAL_WORK_START}-${NORMAL_WORK_END}.`}
       </p>
     </div>
   )

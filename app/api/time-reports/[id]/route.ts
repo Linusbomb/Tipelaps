@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { verifyToken } from '@/lib/auth'
 import { employmentHasEnded } from '@/lib/accountStatus'
 import { adminEffectiveCompanyId } from '@/lib/apiAdmin'
-import { parseDateOnlyLocal } from '@/lib/parseDateOnlyLocal'
+import { parseDateOnlyToStorage } from '@/lib/parseDateOnlyLocal'
 import { isBuyerReferenceUnsupported } from '@/lib/prismaCompat'
 import { persistReportOvertimeHours } from '@/lib/overtime'
 import { cleanClockTime, persistTimeEntryClockTimes } from '@/lib/timeEntryClockTimes'
@@ -186,8 +186,8 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
       )
     }
 
-    const reportDate = parseDateOnlyLocal(String(date))
-    const month = `${reportDate.getFullYear()}-${String(reportDate.getMonth() + 1).padStart(2, '0')}`
+    const reportDate = parseDateOnlyToStorage(String(date))
+    const month = `${reportDate.getUTCFullYear()}-${String(reportDate.getUTCMonth() + 1).padStart(2, '0')}`
 
     const buyerRefTrimmed =
       typeof buyerReference === 'string' && buyerReference.trim() ? buyerReference.trim() : null
@@ -204,7 +204,7 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
             customerId,
             projectId: validProjectId,
             date: reportDate,
-            year: reportDate.getFullYear(),
+            year: reportDate.getUTCFullYear(),
             month,
             totalHours,
             customerTotalHours: totalHours,
@@ -235,7 +235,7 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
       await updateReport(false)
     }
 
-    await persistReportOvertimeHours(existing.id, totalHours, cleanedEntries)
+    await persistReportOvertimeHours(existing.id, totalHours, cleanedEntries, reportDate)
 
     let updated = await prisma.timeReport.findUnique({
       where: { id: existing.id },

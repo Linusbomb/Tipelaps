@@ -6,6 +6,8 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import SuccessDialog from '@/app/components/SuccessDialog'
 import ConfirmDialog from '@/app/components/ConfirmDialog'
+import DayRegistrationNotice from '@/app/components/DayRegistrationNotice'
+import { buildDayRegistrationConflictMessage } from '@/lib/dayRegistrationConflicts'
 import MonthAbsenceReportSection from '@/app/components/MonthAbsenceReportSection'
 import MonthCustomerReportFolders, {
   groupReportsByCustomer,
@@ -14,7 +16,7 @@ import ClockTimeInput from '@/app/components/ClockTimeInput'
 import HoursInput from '@/app/components/HoursInput'
 import OvertimeSummary from '@/app/components/OvertimeSummary'
 import { ABSENCE_TYPES, absenceTypeLabel } from '@/lib/absence'
-import { computeOvertimeHours } from '@/lib/overtime'
+import { computeOvertime } from '@/lib/overtime'
 import MonthSubmissionReminder from '@/app/components/MonthSubmissionReminder'
 import {
   buildMonthOptions,
@@ -56,6 +58,12 @@ function TimeReportPageContent() {
   const [customers, setCustomers] = useState<any[]>([])
   const [monthReports, setMonthReports] = useState<any[]>([])
   const [monthAbsences, setMonthAbsences] = useState<any[]>([])
+  const [createMonthReports, setCreateMonthReports] = useState<any[]>([])
+  const [createMonthAbsences, setCreateMonthAbsences] = useState<any[]>([])
+  const [dayConflictConfirm, setDayConflictConfirm] = useState<{
+    message: string
+    onProceed: () => void
+  } | null>(null)
   const [isAbsenceMode, setIsAbsenceMode] = useState(false)
   const [selectedCustomer, setSelectedCustomer] = useState('')
   const [newCustomerName, setNewCustomerName] = useState('')
@@ -135,6 +143,8 @@ function TimeReportPageContent() {
     [draftMonthReports]
   )
 
+  const selectedMonthKey = useMemo(() => selectedDate.slice(0, 7), [selectedDate])
+
   useEffect(() => {
     setSelectedReportIds(new Set(draftReportIdsThisMonth))
   }, [draftReportIdsThisMonth.join(',')])
@@ -183,6 +193,63 @@ function TimeReportPageContent() {
     }
   }, [])
 
+  const loadCreateMonthRegistrations = useCallback(
+    async (monthKey: string, forUserId?: string) => {
+      const token = localStorage.getItem('token')
+      if (!token) return { reports: [] as any[], absences: [] as any[] }
+
+      const params = new URLSearchParams({ month: monthKey })
+      if (forUserId) params.set('forUserId', forUserId)
+
+      try {
+        const [reportsRes, absencesRes] = await Promise.all([
+          fetch(`/api/time-reports?${params.toString()}`, {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+          fetch(`/api/absence-reports?${params.toString()}`, {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+        ])
+
+        const reports = reportsRes.ok ? await reportsRes.json() : []
+        const absences = absencesRes.ok ? await absencesRes.json() : []
+        const reportList = Array.isArray(reports) ? reports : []
+        const absenceList = Array.isArray(absences) ? absences : []
+
+        setCreateMonthReports(reportList)
+        setCreateMonthAbsences(absenceList)
+        return { reports: reportList, absences: absenceList }
+      } catch (error) {
+        console.error('Fel vid hämtning av dagens registreringar:', error)
+        return { reports: [], absences: [] }
+      }
+    },
+    []
+  )
+
+  const confirmDayRegistrationOrProceed = useCallback(
+    async (isoDate: string, proceed: () => void | Promise<void>) => {
+      const { reports, absences } = await loadCreateMonthRegistrations(
+        isoDate.slice(0, 7),
+        reportForUserId
+      )
+      const message = buildDayRegistrationConflictMessage(isoDate, reports, absences)
+      if (!message) {
+        await proceed()
+        return
+      }
+
+      setDayConflictConfirm({
+        message,
+        onProceed: () => {
+          setDayConflictConfirm(null)
+          void proceed()
+        },
+      })
+    },
+    [loadCreateMonthRegistrations, reportForUserId]
+  )
+
   useEffect(() => {
     const raw = localStorage.getItem('user')
     if (!raw) return
@@ -213,6 +280,10 @@ function TimeReportPageContent() {
     const dateParam = searchParams.get('date')
     if (dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam)) {
       setSelectedDate(dateParam)
+      setActiveTab('create')
+    }
+    if (searchParams.get('absence') === '1') {
+      setIsAbsenceMode(true)
       setActiveTab('create')
     }
     const forUserParam = searchParams.get('forUserId')
@@ -262,6 +333,11 @@ function TimeReportPageContent() {
     fetchMonthReports(manageMonth, reportForUserId)
     fetchMonthAbsences(manageMonth, reportForUserId)
   }, [manageMonth, reportForUserId, fetchMonthReports, fetchMonthAbsences])
+
+  useEffect(() => {
+    if (!reportForUserId) return
+    void loadCreateMonthRegistrations(selectedMonthKey, reportForUserId)
+  }, [selectedMonthKey, reportForUserId, loadCreateMonthRegistrations])
 
   useEffect(() => {
     const token = localStorage.getItem('token')
@@ -347,7 +423,8 @@ function TimeReportPageContent() {
   const totalHours = entries.reduce((sum, e) => sum + (e.hours || 0), 0)
   const totalMachineHours = entries.reduce((sum, e) => sum + (e.machineHours && e.machineHours > 0 ? e.machineHours : 0), 0)
   const remainingHours = totalHours - totalMachineHours
-  const overtimeHours = computeOvertimeHours(totalHours, entries)
+  const overtimeResult = computeOvertime(totalHours, entries, selectedDate)
+  const overtimeHours = overtimeResult.hours
 
   const fetchCustomers = async () => {
     try {
@@ -473,13 +550,7 @@ function TimeReportPageContent() {
     }
   }
 
-  const handleAbsenceSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!absenceIsFullDay && (!absenceHours || Number(absenceHours) <= 0)) {
-      alert('Ange antal timmar för del av dag')
-      return
-    }
-
+  const saveAbsenceReport = async () => {
     setLoading(true)
     try {
       const token = localStorage.getItem('token')
@@ -510,11 +581,13 @@ function TimeReportPageContent() {
       }
 
       const savedMonthKey = selectedDate.slice(0, 7)
+      sessionStorage.setItem('timelaps:lastReportMonth', savedMonthKey)
       setAbsenceType(ABSENCE_TYPES[0].value)
       setAbsenceIsFullDay(true)
       setAbsenceHours('')
       setAbsenceNote('')
       await fetchMonthAbsences(savedMonthKey, reportForUserId)
+      await loadCreateMonthRegistrations(savedMonthKey, reportForUserId)
 
       const subject = reportForUser()
       const forLabel =
@@ -530,35 +603,17 @@ function TimeReportPageContent() {
     }
   }
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleAbsenceSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!selectedCustomer) {
-      alert('Välj en kund')
-      return
-    }
-    if (remainingHours > 0 && !missingHoursReason.trim()) {
-      alert(`Du har ${remainingHours.toFixed(1)} timmar utan fordonstid. Fyll i förklaring innan du sparar.`)
-      return
-    }
-    const missingRegForChosenVehicle = entries.find(
-      (entry: any) =>
-        !!(entry.machineType && String(entry.machineType).trim()) &&
-        !(entry.registrationNumber && String(entry.registrationNumber).trim())
-    )
-    if (missingRegForChosenVehicle) {
-      alert('Om du väljer fordon måste reg.nr anges på den aktiviteten.')
-      return
-    }
-    const regWithoutVehicle = entries.find(
-      (entry: any) =>
-        !(entry.machineType && String(entry.machineType).trim()) &&
-        !!(entry.registrationNumber && String(entry.registrationNumber).trim())
-    )
-    if (regWithoutVehicle) {
-      alert('Välj först fordon på den rad där du fyllt i reg.nr – eller lämna reg.nr tomt.')
+    if (!absenceIsFullDay && (!absenceHours || Number(absenceHours) <= 0)) {
+      alert('Ange antal timmar för del av dag')
       return
     }
 
+    await confirmDayRegistrationOrProceed(selectedDate, saveAbsenceReport)
+  }
+
+  const saveTimeReport = async () => {
     setLoading(true)
     try {
       const token = localStorage.getItem('token')
@@ -608,6 +663,7 @@ function TimeReportPageContent() {
           }
         }
         const savedMonthKey = selectedDate.slice(0, 7)
+        sessionStorage.setItem('timelaps:lastReportMonth', savedMonthKey)
         setEntries([
           {
             hours: 0,
@@ -624,6 +680,7 @@ function TimeReportPageContent() {
         setPendingImages([])
         setSelectedProjectId('')
         await fetchMonthReports(savedMonthKey, reportForUserId)
+        await loadCreateMonthRegistrations(savedMonthKey, reportForUserId)
         setManageMonth(savedMonthKey)
         if (savedMonthKey === toMonthKey(new Date())) {
           setSelectedDate(new Date().toISOString().split('T')[0])
@@ -651,6 +708,38 @@ function TimeReportPageContent() {
     } finally {
       setLoading(false)
     }
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!selectedCustomer) {
+      alert('Välj en kund')
+      return
+    }
+    if (remainingHours > 0 && !missingHoursReason.trim()) {
+      alert(`Du har ${remainingHours.toFixed(1)} timmar utan fordonstid. Fyll i förklaring innan du sparar.`)
+      return
+    }
+    const missingRegForChosenVehicle = entries.find(
+      (entry: any) =>
+        !!(entry.machineType && String(entry.machineType).trim()) &&
+        !(entry.registrationNumber && String(entry.registrationNumber).trim())
+    )
+    if (missingRegForChosenVehicle) {
+      alert('Om du väljer fordon måste reg.nr anges på den aktiviteten.')
+      return
+    }
+    const regWithoutVehicle = entries.find(
+      (entry: any) =>
+        !(entry.machineType && String(entry.machineType).trim()) &&
+        !!(entry.registrationNumber && String(entry.registrationNumber).trim())
+    )
+    if (regWithoutVehicle) {
+      alert('Välj först fordon på den rad där du fyllt i reg.nr – eller lämna reg.nr tomt.')
+      return
+    }
+
+    await confirmDayRegistrationOrProceed(selectedDate, saveTimeReport)
   }
 
   const toggleReportSelection = (reportId: string) => {
@@ -778,13 +867,25 @@ function TimeReportPageContent() {
           <button
             type="button"
             onClick={() => setActiveTab('submit')}
-            className={`px-4 py-2 rounded-md border text-sm font-semibold transition ${
+            className={`inline-flex items-center justify-center gap-2 px-4 py-2 rounded-md border text-sm font-semibold transition ${
               activeTab === 'submit'
                 ? 'bg-green-700 text-white border-green-700'
                 : 'bg-white text-gray-800 border-gray-300 hover:bg-gray-50'
             }`}
           >
             Tidrapporter &amp; inlämning
+            {totalDraftCountThisMonth > 0 ? (
+              <span
+                className={`inline-flex min-w-[1.25rem] items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-bold leading-none tabular-nums ${
+                  activeTab === 'submit'
+                    ? 'bg-white text-green-800'
+                    : 'bg-amber-500 text-white'
+                }`}
+                aria-label={`${totalDraftCountThisMonth} utkast`}
+              >
+                {totalDraftCountThisMonth > 99 ? '99+' : totalDraftCountThisMonth}
+              </span>
+            ) : null}
           </button>
         </div>
 
@@ -842,6 +943,11 @@ function TimeReportPageContent() {
                   onChange={(e) => setSelectedDate(e.target.value)}
                   className="w-full px-4 py-2 border border-gray-300 rounded-md"
                   required
+                />
+                <DayRegistrationNotice
+                  date={selectedDate}
+                  timeReports={createMonthReports}
+                  absences={createMonthAbsences}
                 />
               </div>
 
@@ -1000,6 +1106,11 @@ function TimeReportPageContent() {
             <p className="mt-1 text-xs text-gray-500">
               Du kan välja datum bakåt i tiden om du behöver registrera arbetstid i efterhand.
             </p>
+            <DayRegistrationNotice
+              date={selectedDate}
+              timeReports={createMonthReports}
+              absences={createMonthAbsences}
+            />
             <button
               type="button"
               onClick={copyFromPreviousDay}
@@ -1147,7 +1258,10 @@ function TimeReportPageContent() {
             <p className="text-sm text-gray-700">
               Totalt fordonstid: {totalMachineHours.toFixed(1)} timmar
             </p>
-            <OvertimeSummary overtimeHours={overtimeHours} />
+            <OvertimeSummary
+              overtimeHours={overtimeHours}
+              isHolidayWork={overtimeResult.isHolidayWork}
+            />
             {remainingHours > 0 && (
               <p className="text-sm text-orange-700 mt-1">
                 Resterande tid utan fordon: {remainingHours.toFixed(1)} timmar
@@ -1300,6 +1414,16 @@ function TimeReportPageContent() {
           )}
         </form>
       </div>
+
+      <ConfirmDialog
+        open={dayConflictConfirm !== null}
+        title="Registrering finns redan"
+        message={dayConflictConfirm?.message ?? ''}
+        confirmLabel="Ja, fortsätt"
+        cancelLabel="Avbryt"
+        onCancel={() => setDayConflictConfirm(null)}
+        onConfirm={() => dayConflictConfirm?.onProceed()}
+      />
 
       <ConfirmDialog
         open={reportToDelete !== null}

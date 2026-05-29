@@ -3,7 +3,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { verifyToken } from '@/lib/auth'
 import { isAbsenceType } from '@/lib/absence'
-import { parseDateOnlyLocal } from '@/lib/parseDateOnlyLocal'
+import { parseDateOnlyToStorage } from '@/lib/parseDateOnlyLocal'
+import { monthDateRange } from '@/lib/monthDayCoverage'
 import { resolveTimeReportSubject } from '@/lib/timeReportSubject'
 
 export const dynamic = 'force-dynamic'
@@ -29,36 +30,16 @@ export async function GET(request: NextRequest) {
     const subject = await resolveTimeReportSubject(userId, forUserId ?? userId)
     if (!subject.ok) return subject.response
 
-    const rows = await prisma.$queryRaw<
-      Array<{
-        id: string
-        userId: string
-        date: Date
-        year: number
-        month: string
-        type: string
-        isFullDay: boolean
-        hours: number | null
-        note: string | null
-        status: string
-        submittedAt: Date | null
-        approvedAt: Date | null
-        approvedBy: string | null
-        createdAt: Date
-        updatedAt: Date
-      }>
-    >`
-      SELECT *
-      FROM "AbsenceReport"
-      WHERE "userId" = ${subject.reportUserId}
-        AND (${month}::text IS NULL OR "month" = ${month})
-        AND (
-          ${status}::text IS NULL
-          OR ${status} = 'ALL'
-          OR "status" = ${status}
-        )
-      ORDER BY "date" DESC, "createdAt" DESC
-    `
+    const dateRange = month ? monthDateRange(month) : null
+
+    const rows = await prisma.absenceReport.findMany({
+      where: {
+        userId: subject.reportUserId,
+        ...(dateRange ? { date: { gte: dateRange.gte, lt: dateRange.lt } } : {}),
+        ...(status && status !== 'ALL' ? { status } : {}),
+      },
+      orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
+    })
 
     return NextResponse.json(rows)
   } catch (error) {
@@ -97,8 +78,8 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const reportDate = parseDateOnlyLocal(String(date))
-    const month = `${reportDate.getFullYear()}-${String(reportDate.getMonth() + 1).padStart(2, '0')}`
+    const reportDate = parseDateOnlyToStorage(String(date))
+    const month = `${reportDate.getUTCFullYear()}-${String(reportDate.getUTCMonth() + 1).padStart(2, '0')}`
     const id = randomUUID()
     const now = new Date()
     const trimmedNote = typeof note === 'string' && note.trim() ? note.trim() : null
@@ -109,7 +90,7 @@ export async function POST(request: NextRequest) {
         "note", "status", "createdAt", "updatedAt"
       )
       VALUES (
-        ${id}, ${subject.reportUserId}, ${reportDate}, ${reportDate.getFullYear()}, ${month},
+        ${id}, ${subject.reportUserId}, ${reportDate}, ${reportDate.getUTCFullYear()}, ${month},
         ${type}, ${fullDay}, ${absenceHours}, ${trimmedNote}, 'DRAFT', ${now}, ${now}
       )
     `

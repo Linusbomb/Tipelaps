@@ -7,8 +7,10 @@ import {
   buildHoursByDate,
   buildMonthDayCoverage,
   coverageHasWarnings,
+  monthDateRange,
   warningDaysFromCoverage,
 } from '@/lib/monthDayCoverage'
+import { getWeekdaySwedishPublicHolidaysInMonth } from '@/lib/swedishPublicHolidays'
 import { resolveTimeReportSubject } from '@/lib/timeReportSubject'
 import { toMonthKey } from '@/lib/monthReporting'
 
@@ -35,24 +37,47 @@ export async function GET(request: NextRequest) {
     const subject = await resolveTimeReportSubject(userId, forUserId ?? userId)
     if (!subject.ok) return subject.response
 
+    const dateRange = monthDateRange(month)
+
     const [timeReports, absences] = await Promise.all([
       prisma.timeReport.findMany({
-        where: { userId: subject.reportUserId, month },
-        select: { date: true, totalHours: true, status: true },
+        where: {
+          userId: subject.reportUserId,
+          date: { gte: dateRange.gte, lt: dateRange.lt },
+        },
+        select: {
+          id: true,
+          date: true,
+          totalHours: true,
+          status: true,
+          customer: { select: { name: true } },
+        },
+        orderBy: [{ date: 'asc' }, { createdAt: 'asc' }],
       }),
       prisma.absenceReport.findMany({
-        where: { userId: subject.reportUserId, month },
-        select: { date: true, isFullDay: true, hours: true, status: true },
+        where: {
+          userId: subject.reportUserId,
+          date: { gte: dateRange.gte, lt: dateRange.lt },
+        },
+        select: {
+          id: true,
+          date: true,
+          type: true,
+          isFullDay: true,
+          hours: true,
+          status: true,
+          note: true,
+        },
+        orderBy: [{ date: 'asc' }, { createdAt: 'asc' }],
       }),
     ])
 
-    const { datesWithTimeReport, datesWithDraft } = buildCoverageDraftDateSets(
-      timeReports,
-      absences
-    )
+    const { datesWithTimeReport, datesWithAbsence, datesWithDraft } =
+      buildCoverageDraftDateSets(timeReports, absences)
     const hoursByDate = buildHoursByDate(timeReports, absences)
     const { days, summary } = buildMonthDayCoverage(month, hoursByDate, {
       datesWithTimeReport,
+      datesWithAbsence,
       datesWithDraft,
     })
     const warnings = warningDaysFromCoverage(days)
@@ -64,6 +89,9 @@ export async function GET(request: NextRequest) {
       days,
       warnings,
       hasWarnings: coverageHasWarnings(days),
+      redDaysInMonth: getWeekdaySwedishPublicHolidaysInMonth(month),
+      timeReports,
+      absences,
     })
   } catch (error) {
     console.error('Fel vid hämtning av månadsöversikt:', error)
