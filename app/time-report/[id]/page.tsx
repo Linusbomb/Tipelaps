@@ -5,41 +5,17 @@ import { useParams, useRouter } from 'next/navigation'
 import SuccessDialog from '@/app/components/SuccessDialog'
 import ConfirmDialog from '@/app/components/ConfirmDialog'
 import ClockTimeInput from '@/app/components/ClockTimeInput'
+import VehicleEntryFields, { type CompanyVehicleOption } from '@/app/components/VehicleEntryFields'
+import TimeReportProjectSelect from '@/app/components/TimeReportProjectSelect'
 import OvertimeSummary from '@/app/components/OvertimeSummary'
 import { computeOvertimeHours, resolveOvertimeHours } from '@/lib/overtime'
 import {
-  customerIdForSelectedProject,
+  emptyTimeReportEntryRow,
+  mapApiEntriesToFormRows,
   mapApiProjectsToOptions,
   type MyProjectOption,
+  type TimeReportEntryRow,
 } from '@/lib/timeReportForm'
-
-const MACHINE_OPTIONS = [
-  'Hjullastare',
-  'Grävmaskin',
-  'Minigrävare',
-  'Dumper',
-  'Lastbil',
-  'Kranbil',
-  'Vält',
-  'Annat',
-]
-
-type EntryRow = {
-  hours: number
-  description: string
-  machineHours: number | null
-  startTime: string
-  endTime: string
-  machineType: string
-  registrationNumber: string
-}
-
-function parseVehicle(vehicle: string | null): { machineType: string; registrationNumber: string } {
-  if (!vehicle || !vehicle.trim()) return { machineType: '', registrationNumber: '' }
-  const m = vehicle.trim().match(/^(.+?) \(([^)]+)\)\s*$/)
-  if (m) return { machineType: m[1].trim(), registrationNumber: m[2].trim() }
-  return { machineType: 'Annat', registrationNumber: vehicle.trim() }
-}
 
 export default function TimeReportDetailPage() {
   const params = useParams()
@@ -57,9 +33,8 @@ export default function TimeReportDetailPage() {
   const [selectedProjectId, setSelectedProjectId] = useState('')
   const [selectedCustomer, setSelectedCustomer] = useState('')
   const [selectedDate, setSelectedDate] = useState('')
-  const [entries, setEntries] = useState<EntryRow[]>([
-    { hours: 0, description: '', machineHours: null, startTime: '', endTime: '', machineType: '', registrationNumber: '' },
-  ])
+  const [entries, setEntries] = useState<TimeReportEntryRow[]>([emptyTimeReportEntryRow()])
+  const [companyVehicles, setCompanyVehicles] = useState<CompanyVehicleOption[]>([])
   const [missingHoursReason, setMissingHoursReason] = useState('')
   const [buyerReference, setBuyerReference] = useState('')
   const [saveSuccessOpen, setSaveSuccessOpen] = useState(false)
@@ -67,6 +42,7 @@ export default function TimeReportDetailPage() {
   const [deleting, setDeleting] = useState(false)
   const [attachments, setAttachments] = useState<Array<{ id: string; fileName: string; createdAt: string }>>([])
   const [uploadingAttachment, setUploadingAttachment] = useState(false)
+  const [isAdmin, setIsAdmin] = useState(false)
 
   const [storedOvertimeHours, setStoredOvertimeHours] = useState<number | null>(null)
   const totalHours = entries.reduce((sum, e) => sum + (e.hours || 0), 0)
@@ -89,11 +65,14 @@ export default function TimeReportDetailPage() {
         return
       }
 
-      const [reportRes, customersRes] = await Promise.all([
+      const [reportRes, customersRes, vehiclesRes] = await Promise.all([
         fetch(`/api/time-reports/${reportId}`, {
           headers: { Authorization: `Bearer ${token}` },
         }),
         fetch('/api/customers?activeOnly=true', {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+        fetch('/api/vehicles?activeOnly=true', {
           headers: { Authorization: `Bearer ${token}` },
         }),
       ])
@@ -112,7 +91,8 @@ export default function TimeReportDetailPage() {
       setReportStatus(data.status || '')
       setEditable(Boolean(data.editable))
       setCustomerDisplayName(data.customer?.name || '')
-      setSelectedProjectId(data.project?.id || '')
+      const loadedProjectId = data.project?.id || ''
+      setSelectedProjectId(loadedProjectId)
       setSelectedCustomer(data.customer?.id || '')
       const reportDay = new Date(data.date)
       setSelectedDate(reportDay.toISOString().split('T')[0])
@@ -121,47 +101,29 @@ export default function TimeReportDetailPage() {
         typeof data.overtimeHours === 'number' ? data.overtimeHours : null
       )
 
-      const mapped: EntryRow[] = (data.entries || []).map((en: any) => {
-        let machineType = ''
-        let registrationNumber = ''
-        if (en.vehicle) {
-          const p = parseVehicle(en.vehicle)
-          machineType = p.machineType
-          registrationNumber = p.registrationNumber
-          if (machineType && !MACHINE_OPTIONS.includes(machineType)) {
-            registrationNumber = [machineType, registrationNumber].filter(Boolean).join(' ').trim()
-            machineType = 'Annat'
-          }
-        }
-        return {
-          hours: Number(en.hours) || 0,
-          description: en.description || '',
-          machineHours:
-            en.machineHours !== null && en.machineHours !== undefined ? Number(en.machineHours) : null,
-          startTime: en.startTime || '',
-          endTime: en.endTime || '',
-          machineType,
-          registrationNumber,
-        }
-      })
-
-      if (mapped.length === 0) {
-        mapped.push({
-          hours: 0,
-          description: '',
-          machineHours: null,
-          startTime: '',
-          endTime: '',
-          machineType: '',
-          registrationNumber: '',
-        })
-      }
-
-      setEntries(mapped)
+      setEntries(mapApiEntriesToFormRows(data.entries || []))
       setAttachments(Array.isArray(data.attachments) ? data.attachments : [])
 
       if (customersRes.ok) {
         setCustomers(await customersRes.json())
+      }
+      if (vehiclesRes.ok) {
+        const vehicleData = await vehiclesRes.json()
+        setCompanyVehicles(Array.isArray(vehicleData) ? vehicleData : [])
+      }
+
+      const projectParams = new URLSearchParams()
+      if (loadedProjectId) projectParams.set('includeProjectId', loadedProjectId)
+      const projectOptionsRes = await fetch(
+        `/api/projects/time-report-options?${projectParams}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      )
+      if (projectOptionsRes.ok) {
+        const projectData = await projectOptionsRes.json()
+        const list = Array.isArray(projectData?.projects) ? projectData.projects : []
+        setMyProjects(mapApiProjectsToOptions(list))
+      } else {
+        setMyProjects([])
       }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Något gick fel')
@@ -176,32 +138,27 @@ export default function TimeReportDetailPage() {
 
   useEffect(() => {
     const token = localStorage.getItem('token')
-    if (!token) return
-    fetch('/api/projects/my-projects', {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then((res) => (res.ok ? res.json() : []))
-      .then((data) => {
-        if (!Array.isArray(data)) return
-        setMyProjects(mapApiProjectsToOptions(data))
-      })
-      .catch(() => setMyProjects([]))
+    const userData = localStorage.getItem('user')
+    if (!token || !userData) return
+    try {
+      const parsed = JSON.parse(userData) as { role?: string }
+      setIsAdmin(parsed.role === 'ENTREPRENEUR' || parsed.role === 'PAYROLL_COORDINATOR')
+    } catch {
+      setIsAdmin(false)
+    }
   }, [])
 
   const addEntry = () => {
-    setEntries([
-      ...entries,
-      { hours: 0, description: '', machineHours: null, startTime: '', endTime: '', machineType: '', registrationNumber: '' },
-    ])
+    setEntries([...entries, emptyTimeReportEntryRow()])
   }
 
   const removeEntry = (index: number) => {
     setEntries(entries.filter((_, i) => i !== index))
   }
 
-  const updateEntry = (index: number, field: keyof EntryRow, value: unknown) => {
+  const updateEntry = (index: number, field: keyof TimeReportEntryRow, value: unknown) => {
     const updated = [...entries]
-    updated[index] = { ...updated[index], [field]: value } as EntryRow
+    updated[index] = { ...updated[index], [field]: value } as TimeReportEntryRow
     setEntries(updated)
   }
 
@@ -244,20 +201,12 @@ export default function TimeReportDetailPage() {
     }
     const missingRegForChosenVehicle = entries.find(
       (entry) =>
+        entry.vehicleMode === 'manual' &&
         !!(entry.machineType && String(entry.machineType).trim()) &&
         !(entry.registrationNumber && entry.registrationNumber.trim())
     )
     if (missingRegForChosenVehicle) {
-      alert('Om du väljer fordon måste reg.nr anges på den aktiviteten.')
-      return
-    }
-    const regWithoutVehicle = entries.find(
-      (entry) =>
-        !(entry.machineType && String(entry.machineType).trim()) &&
-        !!(entry.registrationNumber && entry.registrationNumber.trim())
-    )
-    if (regWithoutVehicle) {
-      alert('Välj först fordon på den rad där du fyllt i reg.nr – eller lämna reg.nr tomt.')
+      alert('Om du anger fordon manuellt måste reg.nr fyllas i.')
       return
     }
 
@@ -285,8 +234,9 @@ export default function TimeReportDetailPage() {
             machineHours: e.machineHours,
             startTime: e.startTime,
             endTime: e.endTime,
-            machineType: e.machineType,
-            registrationNumber: e.registrationNumber,
+            vehicleId: e.vehicleMode === 'registry' ? e.vehicleId : null,
+            machineType: e.vehicleMode === 'manual' ? e.machineType : '',
+            registrationNumber: e.vehicleMode === 'manual' ? e.registrationNumber : '',
           })),
           missingHoursReason: remainingHours > 0 ? missingHoursReason : null,
           buyerReference: buyerReference.trim() || null,
@@ -423,23 +373,24 @@ export default function TimeReportDetailPage() {
               <label className="block text-sm font-medium mb-2">
                 Koppla till projekt <span className="font-normal text-gray-500">(valfritt)</span>
               </label>
-              <select
+              {isAdmin ? (
+                <p className="text-xs text-gray-600 mb-2">
+                  Visar alla aktiva projekt i företaget.
+                </p>
+              ) : (
+                <p className="text-xs text-gray-600 mb-2">
+                  Du kan välja alla projekt. De som är tilldelade dig är markerade.
+                </p>
+              )}
+              <TimeReportProjectSelect
+                projects={myProjects}
                 value={selectedProjectId}
-                onChange={(e) => {
-                  const projectId = e.target.value
+                isAdmin={isAdmin}
+                onChange={(projectId, customerId) => {
                   setSelectedProjectId(projectId)
-                  const customerId = customerIdForSelectedProject(myProjects, projectId)
                   if (customerId) setSelectedCustomer(customerId)
                 }}
-                className="w-full px-4 py-2 border border-gray-300 rounded-md"
-              >
-                <option value="">Inget projekt valt</option>
-                {myProjects.map((project) => (
-                  <option key={project.id} value={project.id}>
-                    {project.name}
-                  </option>
-                ))}
-              </select>
+              />
             </div>
 
             <div className="mb-6">
@@ -518,38 +469,20 @@ export default function TimeReportDetailPage() {
                       />
                     </div>
                   </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-2">
-                    <div>
-                      <label className="block text-sm font-medium mb-1">
-                        Fordon <span className="font-normal text-gray-500">(valfritt)</span>
-                      </label>
-                      <select
-                        value={entry.machineType}
-                        onChange={(e) => updateEntry(index, 'machineType', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                      >
-                        <option value="">Välj fordon</option>
-                        {MACHINE_OPTIONS.map((machine) => (
-                          <option key={machine} value={machine}>
-                            {machine}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1">
-                        Reg.nr <span className="font-normal text-gray-500">(lämna tomt om inget fordon)</span>
-                      </label>
-                      <input
-                        type="text"
-                        value={entry.registrationNumber}
-                        onChange={(e) => updateEntry(index, 'registrationNumber', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                        placeholder="Lämnas blankt om inget fordon väljs"
-                        required={!!(entry.machineType && entry.machineType.trim())}
-                      />
-                    </div>
-                  </div>
+                  <VehicleEntryFields
+                    vehicles={companyVehicles}
+                    value={{
+                      vehicleId: entry.vehicleId || '',
+                      vehicleMode: entry.vehicleMode || '',
+                      machineType: entry.machineType || '',
+                      registrationNumber: entry.registrationNumber || '',
+                    }}
+                    onChange={(patch) => {
+                      const updated = [...entries]
+                      updated[index] = { ...updated[index], ...patch }
+                      setEntries(updated)
+                    }}
+                  />
                   <div className="mb-2">
                     <label className="block text-sm font-medium mb-1">Beskrivning</label>
                     <textarea

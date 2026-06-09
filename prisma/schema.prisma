@@ -34,6 +34,9 @@ model User {
   projectAttachments ProjectAttachment[] @relation("ProjectAttachmentUploader")
   vacationWeeks VacationWeek[]
   employmentEndedAt DateTime? // Avslutat – kan inte logga in; tidrapporter bevaras
+  createdAnnouncements CompanyAnnouncement[] @relation("AnnouncementCreator")
+  announcementRecipients CompanyAnnouncementRecipient[]
+  announcementReads CompanyAnnouncementRead[]
 }
 
 model Company {
@@ -44,10 +47,59 @@ model Company {
   employees User[]   @relation("CompanyEmployees")
   customers Customer[]
   projects  Project[]
+  vehicles  CompanyVehicle[]
   vacationWeeks VacationWeek[]
+  announcements CompanyAnnouncement[]
   logoPath  String?  // Sökväg till företagets logga
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model CompanyAnnouncement {
+  id          String   @id @default(cuid())
+  companyId   String
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  title       String
+  body        String
+  startsAt    DateTime? // Valfritt startdatum (kalenderdag)
+  endsAt      DateTime? // Valfritt slutdatum (kalenderdag, inklusive)
+  audienceAll Boolean  @default(true)
+  attachmentFileName String?
+  attachmentStoragePath String?
+  attachmentMimeType String?
+  attachmentKind String? // IMAGE | DOCUMENT
+  createdById String
+  createdBy   User     @relation("AnnouncementCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  archivedAt  DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  recipients  CompanyAnnouncementRecipient[]
+  reads       CompanyAnnouncementRead[]
+
+  @@index([companyId, archivedAt])
+}
+
+model CompanyAnnouncementRecipient {
+  id             String   @id @default(cuid())
+  announcementId String
+  announcement   CompanyAnnouncement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([announcementId, userId])
+  @@index([userId])
+}
+
+model CompanyAnnouncementRead {
+  id             String   @id @default(cuid())
+  announcementId String
+  announcement   CompanyAnnouncement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  readAt         DateTime @default(now())
+
+  @@unique([announcementId, userId])
+  @@index([userId])
 }
 
 model Customer {
@@ -60,6 +112,7 @@ model Customer {
   information String? // Nödvändig information om kunden
   contactEmail String? // E-post för utskick av tidrapporter till kund
   archivedAt DateTime? // Arkiverad kund visas inte som aktiv
+  deletedAt DateTime? // Mjuk radering — syns under Raderade på kundsidan
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   timeReports TimeReport[]
@@ -100,12 +153,16 @@ model TimeReportEntry {
   machineHours Float?  // Fordonstimmar
   startTime   String? // Klockslag HH:mm för löne-/övertidsunderlag
   endTime     String? // Klockslag HH:mm för löne-/övertidsunderlag
-  vehicle     String?  // Fordon man kört
+  vehicle     String?  // Fordon man kört (legacy/display: "Typ (REG)")
+  vehicleId   String?
+  vehicleRecord CompanyVehicle? @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
   description String   // Arbetsbeskrivning
   location    String?  // Vart du har varit
   referenceNumber String? // Referensnummer
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  @@index([vehicleId])
 }
 
 model AbsenceReport {
@@ -134,7 +191,7 @@ model EmployeeDocument {
   id          String   @id @default(cuid())
   userId      String
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  type        String   // DRIVERS_LICENSE, CERTIFICATION, EDUCATION, EMPLOYMENT_CONTRACT
+  type        String   // ID06, DRIVERS_LICENSE, CERTIFICATION, EDUCATION, EMPLOYMENT_CONTRACT, OTHER
   title       String   // T.ex. "Körkort B", "Säkerhetsutbildning", etc.
   fileName    String   // Filnamn
   filePath    String   // Sökväg till filen
@@ -214,6 +271,24 @@ model ProjectEmployee {
   updatedAt DateTime @updatedAt
 
   @@unique([projectId, userId])
+}
+
+model CompanyVehicle {
+  id                 String   @id @default(cuid())
+  companyId          String
+  company            Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name               String?  // Valfritt visningsnamn
+  type               String   // HJULLASTARE, GRAVMASKIN, PERSONBIL, etc.
+  registrationNumber String
+  equipment          String?  // Nödvändig utrustning / information
+  archivedAt         DateTime?
+  deletedAt          DateTime?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  timeReportEntries  TimeReportEntry[]
+
+  @@unique([companyId, registrationNumber])
+  @@index([companyId, deletedAt])
 }
 
 model VacationWeek {

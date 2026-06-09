@@ -6,6 +6,8 @@ type ConfirmDialogProps = {
   message: string
   confirmLabel?: string
   cancelLabel?: string
+  /** Endast en OK-knapp (ingen bekräftelseåtgärd). */
+  alertOnly?: boolean
   onConfirm: () => void
   onCancel: () => void
 }
@@ -16,6 +18,7 @@ export default function ConfirmDialog({
   message,
   confirmLabel = 'Ja, skicka in',
   cancelLabel = 'Avbryt',
+  alertOnly = false,
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
@@ -46,21 +49,34 @@ export default function ConfirmDialog({
         </h2>
         <p className="text-sm text-gray-600 mb-6 whitespace-pre-line">{message}</p>
         <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-          <button
-            type="button"
-            className="rounded-lg py-2.5 px-4 text-sm font-semibold border border-gray-300 text-gray-800 hover:bg-gray-50 transition"
-            onClick={onCancel}
-          >
-            {cancelLabel}
-          </button>
-          <button
-            type="button"
-            className="rounded-lg py-2.5 px-4 text-sm font-semibold text-white transition hover:opacity-90"
-            style={{ backgroundColor: '#2D5016' }}
-            onClick={onConfirm}
-          >
-            {confirmLabel}
-          </button>
+          {alertOnly ? (
+            <button
+              type="button"
+              className="rounded-lg py-2.5 px-4 text-sm font-semibold text-white transition hover:opacity-90"
+              style={{ backgroundColor: '#2D5016' }}
+              onClick={onCancel}
+            >
+              {cancelLabel}
+            </button>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="rounded-lg py-2.5 px-4 text-sm font-semibold border border-gray-300 text-gray-800 hover:bg-gray-50 transition"
+                onClick={onCancel}
+              >
+                {cancelLabel}
+              </button>
+              <button
+                type="button"
+                className="rounded-lg py-2.5 px-4 text-sm font-semibold text-white transition hover:opacity-90"
+                style={{ backgroundColor: '#2D5016' }}
+                onClick={onConfirm}
+              >
+                {confirmLabel}
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>

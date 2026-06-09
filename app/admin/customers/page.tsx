@@ -2,6 +2,9 @@
 
 import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
+import ConfirmDialog from '@/app/components/ConfirmDialog'
+
+type CustomerStatusFilter = 'active' | 'inactive' | 'deleted'
 
 type Customer = {
   id: string
@@ -11,6 +14,7 @@ type Customer = {
   information: string | null
   contactEmail: string | null
   archivedAt?: string | null
+  deletedAt?: string | null
 }
 
 type ProjectEmployee = {
@@ -34,7 +38,11 @@ export default function AdminCustomersPage() {
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [search, setSearch] = useState('')
-  const [showArchived, setShowArchived] = useState(false)
+  const [statusFilter, setStatusFilter] = useState<CustomerStatusFilter>('active')
+  const [activeProjectsOnly, setActiveProjectsOnly] = useState(false)
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
+  const [activeProjectsWarningOpen, setActiveProjectsWarningOpen] = useState(false)
+  const [restoreConfirmOpen, setRestoreConfirmOpen] = useState(false)
   const [creatingNew, setCreatingNew] = useState(false)
   const [form, setForm] = useState({
     name: '',
@@ -66,16 +74,49 @@ export default function AdminCustomersPage() {
 
   const filteredCustomers = useMemo(() => {
     const needle = search.trim().toLowerCase()
-    return customers.filter((customer) => {
-      if (!showArchived && customer.archivedAt) return false
-      if (!needle) return true
-      return (
-        customer.name.toLowerCase().includes(needle) ||
-        (customer.organizationNumber || '').toLowerCase().includes(needle) ||
-        (customer.contactEmail || '').toLowerCase().includes(needle)
-      )
-    })
-  }, [customers, search, showArchived])
+    return customers
+      .filter((customer) => {
+        const isDeleted = Boolean(customer.deletedAt)
+        const isInactive = Boolean(customer.archivedAt) && !isDeleted
+        const isActive = !isDeleted && !customer.archivedAt
+
+        if (statusFilter === 'active' && !isActive) return false
+        if (statusFilter === 'inactive' && !isInactive) return false
+        if (statusFilter === 'deleted' && !isDeleted) return false
+
+        if (statusFilter === 'active' && activeProjectsOnly) {
+          const activeCount = customerProjectStats[customer.id]?.active ?? 0
+          if (activeCount === 0) return false
+        }
+
+        if (!needle) return true
+        return (
+          customer.name.toLowerCase().includes(needle) ||
+          (customer.organizationNumber || '').toLowerCase().includes(needle) ||
+          (customer.contactEmail || '').toLowerCase().includes(needle)
+        )
+      })
+      .sort((a, b) => {
+        const activeA = customerProjectStats[a.id]?.active ?? 0
+        const activeB = customerProjectStats[b.id]?.active ?? 0
+        if (statusFilter === 'active' && activeB !== activeA) return activeB - activeA
+        return a.name.localeCompare(b.name, 'sv')
+      })
+  }, [customers, search, statusFilter, activeProjectsOnly, customerProjectStats])
+
+  const statusCounts = useMemo(() => {
+    let active = 0
+    let inactive = 0
+    let deleted = 0
+    for (const customer of customers) {
+      if (customer.deletedAt) deleted += 1
+      else if (customer.archivedAt) inactive += 1
+      else active += 1
+    }
+    return { active, inactive, deleted }
+  }, [customers])
+
+  const isSelectedDeleted = Boolean(selectedCustomer?.deletedAt)
 
   const setFormFromCustomer = (customer: Customer | null) => {
     setForm({
@@ -98,7 +139,7 @@ export default function AdminCustomersPage() {
       }
 
       const [customersRes, projectsRes] = await Promise.all([
-        fetch('/api/customers', { headers: { Authorization: `Bearer ${token}` } }),
+        fetch('/api/customers?includeDeleted=true', { headers: { Authorization: `Bearer ${token}` } }),
         fetch('/api/projects', { headers: { Authorization: `Bearer ${token}` } }),
       ])
 
@@ -239,7 +280,7 @@ export default function AdminCustomersPage() {
       if (!res.ok) throw new Error(data.error || 'Kunde inte ändra kundstatus')
       setCustomers((prev) => prev.map((c) => (c.id === data.id ? data : c)))
       setFormFromCustomer(data)
-      setMessage(archive ? 'Kund arkiverad' : 'Kund återaktiverad')
+      setMessage(archive ? 'Kund markerad som inaktiv' : 'Kund aktiverad')
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Kunde inte ändra kundstatus')
     } finally {
@@ -247,10 +288,8 @@ export default function AdminCustomersPage() {
     }
   }
 
-  const onDeleteCustomer = async () => {
+  const performDeleteCustomer = async () => {
     if (!selectedCustomerId || !selectedCustomer) return
-    const ok = window.confirm(`Radera kunden "${selectedCustomer.name}"?`)
-    if (!ok) return
     try {
       setSaving(true)
       setError('')
@@ -266,15 +305,50 @@ export default function AdminCustomersPage() {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Kunde inte radera kund')
-      setMessage('Kund raderad')
+      setMessage(`Kunden "${selectedCustomer.name}" har raderats`)
       setSelectedCustomerId(null)
       setCreatingNew(true)
       setForm({ name: '', organizationNumber: '', address: '', contactEmail: '', information: '' })
+      setStatusFilter('deleted')
       await fetchData()
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Kunde inte radera kund')
     } finally {
       setSaving(false)
+      setDeleteConfirmOpen(false)
+    }
+  }
+
+  const performRestoreCustomer = async () => {
+    if (!selectedCustomerId) return
+    try {
+      setSaving(true)
+      setError('')
+      setMessage('')
+      const token = localStorage.getItem('token')
+      if (!token) {
+        window.location.href = '/login'
+        return
+      }
+      const res = await fetch(`/api/customers/${selectedCustomerId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ restore: true }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Kunde inte återställa kund')
+      setCustomers((prev) => prev.map((c) => (c.id === data.id ? data : c)))
+      setFormFromCustomer(data)
+      setMessage('Kund återställd')
+      setStatusFilter('active')
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Kunde inte återställa kund')
+    } finally {
+      setSaving(false)
+      setRestoreConfirmOpen(false)
     }
   }
 
@@ -289,41 +363,92 @@ export default function AdminCustomersPage() {
     project.employees.some((employee) => !employee.completed)
   )
 
-  return (
-    <div className="app-shell-wide">
-      <div className="bg-white rounded-lg shadow-md p-6">
-        <h1 className="text-2xl font-bold mb-1" style={{ color: '#2D5016' }}>
-          Aktiva kunder
-        </h1>
-        <p className="text-sm text-gray-600 mb-6">
-          Hantera org.nr och kontaktuppgifter samt se aktiva projekt per kund.
-        </p>
+  const activeProjectsWarningMessage = useMemo(() => {
+    if (selectedActiveProjects.length === 0) return ''
+    const projectLines = selectedActiveProjects
+      .slice(0, 5)
+      .map((project) => `• ${project.name}`)
+      .join('\n')
+    const more =
+      selectedActiveProjects.length > 5
+        ? `\n… och ${selectedActiveProjects.length - 5} till`
+        : ''
+    return `Kunden har ${selectedActiveProjects.length} aktiva projekt som behöver avslutas innan kunden kan raderas.\n\n${projectLines}${more}`
+  }, [selectedActiveProjects])
 
-        {loading ? (
+  const handleDeleteCustomerClick = () => {
+    if (selectedActiveProjects.length > 0) {
+      setActiveProjectsWarningOpen(true)
+      return
+    }
+    setDeleteConfirmOpen(true)
+  }
+
+  return (
+    <>
+      <p className="text-sm text-gray-600 mb-6">
+        Hantera org.nr och kontaktuppgifter samt se aktiva projekt per kund.
+      </p>
+
+      {loading ? (
           <p>Laddar kunder...</p>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-1 border border-gray-200 rounded-lg p-4">
               <h2 className="font-semibold text-gray-900 mb-3">Kundlista</h2>
-              <div className="space-y-2 mb-3">
+              <div className="space-y-3 mb-3">
                 <input
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   placeholder="Sök kund, org.nr, e-post..."
                   className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
                 />
-                <label className="inline-flex items-center gap-2 text-sm text-gray-700">
-                  <input
-                    type="checkbox"
-                    checked={showArchived}
-                    onChange={(e) => setShowArchived(e.target.checked)}
-                  />
-                  Visa arkiverade kunder
-                </label>
+                <div className="flex flex-wrap gap-2">
+                  {(
+                    [
+                      { key: 'active' as const, label: 'Aktiva', count: statusCounts.active },
+                      { key: 'inactive' as const, label: 'Inaktiva', count: statusCounts.inactive },
+                      { key: 'deleted' as const, label: 'Raderade', count: statusCounts.deleted },
+                    ] as const
+                  ).map((tab) => {
+                    const isActive = statusFilter === tab.key
+                    return (
+                      <button
+                        key={tab.key}
+                        type="button"
+                        onClick={() => setStatusFilter(tab.key)}
+                        className={`rounded-md px-3 py-1.5 text-sm font-medium border transition ${
+                          isActive
+                            ? 'text-white border-transparent'
+                            : 'text-gray-700 border-gray-300 bg-white hover:bg-gray-50'
+                        }`}
+                        style={isActive ? { backgroundColor: '#2D5016' } : undefined}
+                      >
+                        {tab.label} ({tab.count})
+                      </button>
+                    )
+                  })}
+                </div>
+                {statusFilter === 'active' ? (
+                  <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+                    <input
+                      type="checkbox"
+                      checked={activeProjectsOnly}
+                      onChange={(e) => setActiveProjectsOnly(e.target.checked)}
+                    />
+                    Visa endast kunder med aktiva projekt
+                  </label>
+                ) : null}
               </div>
               <div className="space-y-2 max-h-[420px] overflow-auto pr-1">
                 {filteredCustomers.length === 0 ? (
-                  <p className="text-sm text-gray-500">Inga kunder ännu.</p>
+                  <p className="text-sm text-gray-500">
+                    {statusFilter === 'deleted'
+                      ? 'Inga raderade kunder.'
+                      : statusFilter === 'inactive'
+                        ? 'Inga inaktiva kunder.'
+                        : 'Inga aktiva kunder.'}
+                  </p>
                 ) : (
                   filteredCustomers.map((customer) => {
                     const stats = customerProjectStats[customer.id] ?? { active: 0, total: 0, projects: [] }
@@ -341,8 +466,10 @@ export default function AdminCustomersPage() {
                       >
                         <p className="font-medium text-gray-900">
                           {customer.name}
-                          {customer.archivedAt ? (
-                            <span className="ml-2 text-xs font-normal text-amber-700">(Arkiverad)</span>
+                          {customer.deletedAt ? (
+                            <span className="ml-2 text-xs font-normal text-red-700">(Raderad)</span>
+                          ) : customer.archivedAt ? (
+                            <span className="ml-2 text-xs font-normal text-amber-700">(Inaktiv)</span>
                           ) : null}
                         </p>
                         <p className="text-xs text-gray-600">
@@ -380,33 +507,44 @@ export default function AdminCustomersPage() {
                   value={form.name}
                   onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
                   placeholder="Kundnamn *"
-                  className="px-3 py-2 border border-gray-300 rounded-md"
+                  className="px-3 py-2 border border-gray-300 rounded-md disabled:bg-gray-100"
+                  disabled={isSelectedDeleted}
                 />
                 <input
                   value={form.organizationNumber}
                   onChange={(e) => setForm((prev) => ({ ...prev, organizationNumber: e.target.value }))}
                   placeholder="Organisationsnummer"
-                  className="px-3 py-2 border border-gray-300 rounded-md"
+                  className="px-3 py-2 border border-gray-300 rounded-md disabled:bg-gray-100"
+                  disabled={isSelectedDeleted}
                 />
                 <input
                   value={form.contactEmail}
                   onChange={(e) => setForm((prev) => ({ ...prev, contactEmail: e.target.value }))}
                   placeholder="Kontakt e-post"
-                  className="px-3 py-2 border border-gray-300 rounded-md"
+                  className="px-3 py-2 border border-gray-300 rounded-md disabled:bg-gray-100"
+                  disabled={isSelectedDeleted}
                 />
                 <input
                   value={form.address}
                   onChange={(e) => setForm((prev) => ({ ...prev, address: e.target.value }))}
                   placeholder="Adress"
-                  className="px-3 py-2 border border-gray-300 rounded-md"
+                  className="px-3 py-2 border border-gray-300 rounded-md disabled:bg-gray-100"
+                  disabled={isSelectedDeleted}
                 />
                 <textarea
                   value={form.information}
                   onChange={(e) => setForm((prev) => ({ ...prev, information: e.target.value }))}
                   placeholder="Kontaktuppgifter / övrig information"
-                  className="md:col-span-2 px-3 py-2 border border-gray-300 rounded-md min-h-[90px]"
+                  className="md:col-span-2 px-3 py-2 border border-gray-300 rounded-md min-h-[90px] disabled:bg-gray-100"
+                  disabled={isSelectedDeleted}
                 />
               </div>
+
+              {isSelectedDeleted ? (
+                <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-md px-3 py-2">
+                  Denna kund är raderad och kan inte redigeras. Du kan återställa kunden om den ska bli aktiv igen.
+                </p>
+              ) : null}
 
               <div className="flex flex-wrap gap-2">
                 {creatingNew || !selectedCustomerId ? (
@@ -423,7 +561,7 @@ export default function AdminCustomersPage() {
                   <button
                     type="button"
                     onClick={onSaveCustomer}
-                    disabled={saving}
+                    disabled={saving || isSelectedDeleted}
                     className="px-4 py-2 rounded-md border border-gray-300 bg-white disabled:opacity-50"
                   >
                     Spara ändringar
@@ -433,22 +571,35 @@ export default function AdminCustomersPage() {
 
               {!creatingNew && selectedCustomerId ? (
                 <div className="flex flex-wrap gap-2 pt-2 border-t border-gray-100">
-                  <button
-                    type="button"
-                    onClick={() => onArchiveToggle(!selectedCustomer?.archivedAt)}
-                    disabled={saving}
-                    className="px-3 py-2 rounded-md border border-amber-300 bg-amber-50 text-amber-900 text-sm disabled:opacity-50"
-                  >
-                    {selectedCustomer?.archivedAt ? 'Aktivera kund' : 'Avaktivera kund'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={onDeleteCustomer}
-                    disabled={saving}
-                    className="px-3 py-2 rounded-md border border-red-300 bg-red-50 text-red-700 text-sm disabled:opacity-50"
-                  >
-                    Radera kund
-                  </button>
+                  {isSelectedDeleted ? (
+                    <button
+                      type="button"
+                      onClick={() => setRestoreConfirmOpen(true)}
+                      disabled={saving}
+                      className="px-3 py-2 rounded-md border border-green-700 bg-green-50 text-green-900 text-sm disabled:opacity-50"
+                    >
+                      Återställ kund
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => onArchiveToggle(!selectedCustomer?.archivedAt)}
+                        disabled={saving}
+                        className="px-3 py-2 rounded-md border border-amber-300 bg-amber-50 text-amber-900 text-sm disabled:opacity-50"
+                      >
+                        {selectedCustomer?.archivedAt ? 'Aktivera kund' : 'Gör inaktiv'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleDeleteCustomerClick}
+                        disabled={saving}
+                        className="px-3 py-2 rounded-md border border-red-300 bg-red-50 text-red-700 text-sm disabled:opacity-50"
+                      >
+                        Radera kund
+                      </button>
+                    </>
+                  )}
                 </div>
               ) : null}
 
@@ -484,7 +635,44 @@ export default function AdminCustomersPage() {
             </div>
           )}
         </div>
-      </div>
-    </div>
+
+      <ConfirmDialog
+        open={activeProjectsWarningOpen}
+        title="Kan inte radera kund"
+        message={activeProjectsWarningMessage}
+        alertOnly
+        cancelLabel="OK"
+        onCancel={() => setActiveProjectsWarningOpen(false)}
+        onConfirm={() => setActiveProjectsWarningOpen(false)}
+      />
+
+      <ConfirmDialog
+        open={deleteConfirmOpen}
+        title="Radera kund"
+        message={
+          selectedCustomer
+            ? `Är du säker på att du vill radera kunden "${selectedCustomer.name}"? Kunden flyttas till fliken Raderade och kan återställas senare.`
+            : 'Är du säker på att du vill radera denna kund?'
+        }
+        confirmLabel="Ja, radera"
+        cancelLabel="Avbryt"
+        onCancel={() => setDeleteConfirmOpen(false)}
+        onConfirm={() => void performDeleteCustomer()}
+      />
+
+      <ConfirmDialog
+        open={restoreConfirmOpen}
+        title="Återställ kund"
+        message={
+          selectedCustomer
+            ? `Vill du återställa kunden "${selectedCustomer.name}"? Den blir aktiv igen i kundlistan.`
+            : 'Vill du återställa denna kund?'
+        }
+        confirmLabel="Ja, återställ"
+        cancelLabel="Avbryt"
+        onCancel={() => setRestoreConfirmOpen(false)}
+        onConfirm={() => void performRestoreCustomer()}
+      />
+    </>
   )
 }

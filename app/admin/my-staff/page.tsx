@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
+import EmployeeDocumentsPanel from '@/app/components/EmployeeDocumentsPanel'
 import {
   VACATION_WORK_DAYS,
   VACATION_DAY_LABELS,
@@ -52,6 +53,7 @@ export default function MyStaffPage() {
   const [message, setMessage] = useState('')
   const [employeePendingRemove, setEmployeePendingRemove] = useState<Employee | null>(null)
   const [removingEmployeeId, setRemovingEmployeeId] = useState<string | null>(null)
+  const [onboardingEmployee, setOnboardingEmployee] = useState<Employee | null>(null)
 
   useEffect(() => {
     fetchEmployees()
@@ -137,6 +139,7 @@ export default function MyStaffPage() {
       }
 
       setMessage(`Personal skapad: ${data.employee.email}`)
+      setOnboardingEmployee(data.employee)
       setEmployeeForm({
         name: '',
         email: '',
@@ -433,6 +436,43 @@ export default function MyStaffPage() {
           </form>
         </div>
 
+        {onboardingEmployee ? (
+          <div className="mb-8 rounded-lg border border-[#2D5016]/20 bg-white p-4 sm:p-5">
+            <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+              <div>
+                <h2 className="text-xl font-semibold" style={{ color: '#2D5016' }}>
+                  Dokument vid uppstart
+                </h2>
+                <p className="text-sm text-gray-600 mt-1">
+                  Ladda upp ID06, certifikat och andra dokument för {onboardingEmployee.name}. Du
+                  kan även lägga till fler dokument senare via personalens sida.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setOnboardingEmployee(null)}
+                className="text-sm text-gray-600 hover:text-gray-900"
+              >
+                Stäng
+              </button>
+            </div>
+            <EmployeeDocumentsPanel
+              userId={onboardingEmployee.id}
+              title={`Dokument för ${onboardingEmployee.name}`}
+              description="Valfritt — ladda upp det som behövs innan personen börjar."
+              onNotify={({ type, text }) => {
+                if (type === 'success') {
+                  setMessage(text)
+                  setError('')
+                } else {
+                  setError(text)
+                  setMessage('')
+                }
+              }}
+            />
+          </div>
+        ) : null}
+
         <div className="mb-6 grid grid-cols-1 md:grid-cols-2 gap-3">
           <div>
             <label className="block text-sm font-medium mb-2">Sök personal:</label>
@@ -509,6 +549,12 @@ export default function MyStaffPage() {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm">
                       <div className="flex flex-col gap-2">
+                        <Link
+                          href={`/employee/${employee.id}`}
+                          className="px-3 py-1 rounded-md border border-[#2D5016]/30 text-[#2D5016] bg-green-50 hover:bg-green-100 text-left"
+                        >
+                          Dokument &amp; uppgifter
+                        </Link>
                         <button
                           type="button"
                           onClick={() => resendSetupEmail(employee.id)}

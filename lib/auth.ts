@@ -24,8 +24,18 @@ export async function verifyPassword(password: string, hashedPassword: string): 
   return bcrypt.compare(password, hashedPassword)
 }
 
-export function generateToken(userId: string, email: string, role: string): string {
-  return jwt.sign({ userId, email, role }, JWT_SECRET, { expiresIn: '7d' })
+export const SESSION_EXPIRY_DEFAULT = '7d'
+export const SESSION_EXPIRY_REMEMBER = '90d'
+
+export function generateToken(
+  userId: string,
+  email: string,
+  role: string,
+  rememberMe = false
+): string {
+  return jwt.sign({ userId, email, role }, JWT_SECRET, {
+    expiresIn: rememberMe ? SESSION_EXPIRY_REMEMBER : SESSION_EXPIRY_DEFAULT,
+  })
 }
 
 /**

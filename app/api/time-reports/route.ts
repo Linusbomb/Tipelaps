@@ -7,6 +7,7 @@ import { isBuyerReferenceUnsupported } from '@/lib/prismaCompat'
 import { persistReportOvertimeHours } from '@/lib/overtime'
 import { resolveTimeReportSubject } from '@/lib/timeReportSubject'
 import { cleanClockTime, persistTimeEntryClockTimes } from '@/lib/timeEntryClockTimes'
+import { normalizeTimeReportEntries } from '@/lib/vehicleEntryApi'
 
 export const dynamic = 'force-dynamic'
 
@@ -120,39 +121,18 @@ export async function POST(request: NextRequest) {
       validProjectId = project.id
     }
 
-    const cleanedEntries = entries.map((entry: any) => ({
-      hours: Number(entry.hours) || 0,
-      machineHours: entry.machineHours !== null && entry.machineHours !== undefined ? Number(entry.machineHours) : null,
-      description: typeof entry.description === 'string' ? entry.description.trim() : '',
-      machineType: typeof entry.machineType === 'string' ? entry.machineType.trim() : '',
-      startTime: cleanClockTime(entry.startTime),
-      endTime: cleanClockTime(entry.endTime),
-      registrationNumber:
-        typeof entry.registrationNumber === 'string' ? entry.registrationNumber.trim() : '',
-    }))
+    const { entries: cleanedEntries, error: entryError } = await normalizeTimeReportEntries(
+      subject.companyId,
+      entries,
+      cleanClockTime
+    )
+    if (entryError) {
+      return NextResponse.json({ error: entryError }, { status: 400 })
+    }
 
-    if (cleanedEntries.some((entry: any) => entry.hours <= 0 || !entry.description)) {
+    if (cleanedEntries.some((entry) => entry.hours <= 0 || !entry.description)) {
       return NextResponse.json(
         { error: 'Varje aktivitet måste ha timmar över 0 och en beskrivning' },
-        { status: 400 }
-      )
-    }
-    const missingRegForVehicle = cleanedEntries.find((entry: any) => {
-      const hasVehicle = !!(entry.machineType && String(entry.machineType).trim())
-      const hasReg = !!(entry.registrationNumber && String(entry.registrationNumber).trim())
-      return hasVehicle && !hasReg
-    })
-    if (missingRegForVehicle) {
-      return NextResponse.json({ error: 'Reg.nr måste anges om fordon väljs.' }, { status: 400 })
-    }
-    const orphanRegNumber = cleanedEntries.find((entry: any) => {
-      const hasVehicle = !!(entry.machineType && String(entry.machineType).trim())
-      const hasReg = !!(entry.registrationNumber && String(entry.registrationNumber).trim())
-      return !hasVehicle && hasReg
-    })
-    if (orphanRegNumber) {
-      return NextResponse.json(
-        { error: 'Välj ett fordon om du anger reg.nr, eller lämna reg.nr tom.' },
         { status: 400 }
       )
     }
@@ -193,14 +173,12 @@ export async function POST(request: NextRequest) {
           month,
           status: 'DRAFT',
           entries: {
-            create: cleanedEntries.map((entry: any) => ({
+            create: cleanedEntries.map((entry) => ({
               hours: entry.hours,
               machineHours: entry.machineHours,
               description: entry.description,
-              vehicle:
-                entry.machineType && entry.registrationNumber
-                  ? `${entry.machineType} (${entry.registrationNumber})`
-                  : null,
+              vehicle: entry.vehicle,
+              vehicleId: entry.vehicleId,
             })),
           },
         },

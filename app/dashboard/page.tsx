@@ -11,6 +11,7 @@ import DashboardStatisticsPanel from '@/app/components/DashboardStatisticsPanel'
 import MonthSubmissionReminder from '@/app/components/MonthSubmissionReminder'
 import MonthDayCoveragePanel from '@/app/components/MonthDayCoveragePanel'
 import AdminMonthCoveragePanel from '@/app/components/AdminMonthCoveragePanel'
+import DashboardAnnouncementsPanel from '@/app/components/DashboardAnnouncementsPanel'
 import type { DayCoverage, MonthCoverageSummary } from '@/lib/monthDayCoverage'
 import type {
   CoverageMonthAbsence,
@@ -343,6 +344,10 @@ export default function DashboardPage() {
           />
         ) : null}
 
+        {dashboardTab === 'overview' ? (
+          <DashboardAnnouncementsPanel isAdmin={isAdmin} />
+        ) : null}
+
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-6">
           <h1 className="app-title" style={{ color: '#2D5016' }}>
             {dashboardTab === 'statistics' ? 'Statistik' : `Överblick ${capitalizedMonthLabel}`}
@@ -443,7 +448,13 @@ export default function DashboardPage() {
                 href="/admin/customers"
                 className="w-full sm:w-auto text-center px-6 py-3 bg-gray-700 text-white rounded-md hover:bg-gray-800"
               >
-                Aktiva kunder
+                Kunder
+              </Link>
+              <Link
+                href="/admin/announcements"
+                className="w-full sm:w-auto text-center px-6 py-3 bg-gray-700 text-white rounded-md hover:bg-gray-800"
+              >
+                Nyheter
               </Link>
             </>
           )}

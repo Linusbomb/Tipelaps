@@ -13,6 +13,8 @@ import MonthCustomerReportFolders, {
   groupReportsByCustomer,
 } from '@/app/components/MonthCustomerReportFolders'
 import ClockTimeInput from '@/app/components/ClockTimeInput'
+import VehicleEntryFields, { type CompanyVehicleOption } from '@/app/components/VehicleEntryFields'
+import TimeReportProjectSelect from '@/app/components/TimeReportProjectSelect'
 import HoursInput from '@/app/components/HoursInput'
 import OvertimeSummary from '@/app/components/OvertimeSummary'
 import { ABSENCE_TYPES, absenceTypeLabel } from '@/lib/absence'
@@ -29,24 +31,13 @@ import {
 } from '@/lib/monthReporting'
 import {
   addDaysToIsoDate,
-  customerIdForSelectedProject,
   extractFormStateFromReport,
   findReportForDate,
   mapApiProjectsToOptions,
+  emptyTimeReportEntryRow,
   type MyProjectOption,
   type ProjectPrefillPayload,
 } from '@/lib/timeReportForm'
-
-const MACHINE_OPTIONS = [
-  'Hjullastare',
-  'Grävmaskin',
-  'Minigrävare',
-  'Dumper',
-  'Lastbil',
-  'Kranbil',
-  'Vält',
-  'Annat',
-]
 
 function TimeReportPageContent() {
   const { t } = useLanguage()
@@ -77,17 +68,8 @@ function TimeReportPageContent() {
   const [absenceIsFullDay, setAbsenceIsFullDay] = useState(true)
   const [absenceHours, setAbsenceHours] = useState<number | ''>('')
   const [absenceNote, setAbsenceNote] = useState('')
-  const [entries, setEntries] = useState([
-    {
-      hours: 0,
-      description: '',
-      machineHours: null as number | null,
-      startTime: '',
-      endTime: '',
-      machineType: '',
-      registrationNumber: '',
-    },
-  ])
+  const [entries, setEntries] = useState([emptyTimeReportEntryRow()])
+  const [companyVehicles, setCompanyVehicles] = useState<CompanyVehicleOption[]>([])
   const [missingHoursReason, setMissingHoursReason] = useState('')
   const [buyerReference, setBuyerReference] = useState('')
   const [pendingProjectPrefill, setPendingProjectPrefill] = useState<ProjectPrefillPayload | null>(null)
@@ -297,8 +279,24 @@ function TimeReportPageContent() {
     }
   }, [searchParams, currentUser])
 
+  const fetchVehicles = async () => {
+    try {
+      const token = localStorage.getItem('token')
+      if (!token) return
+      const response = await fetch('/api/vehicles?activeOnly=true', {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!response.ok) return
+      const data = await response.json()
+      setCompanyVehicles(Array.isArray(data) ? data : [])
+    } catch {
+      setCompanyVehicles([])
+    }
+  }
+
   useEffect(() => {
     fetchCustomers()
+    fetchVehicles()
 
     const storedPrefill = localStorage.getItem('prefillTimeReportFromProject')
     if (storedPrefill) {
@@ -314,19 +312,33 @@ function TimeReportPageContent() {
     }
   }, [])
 
-  useEffect(() => {
+  const fetchTimeReportProjects = useCallback(async (forUserId?: string) => {
     const token = localStorage.getItem('token')
     if (!token) return
-    fetch('/api/projects/my-projects', {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then((res) => (res.ok ? res.json() : []))
-      .then((data) => {
-        if (!Array.isArray(data)) return
-        setMyProjects(mapApiProjectsToOptions(data))
-      })
-      .catch(() => setMyProjects([]))
+    const params = new URLSearchParams()
+    if (forUserId) params.set('forUserId', forUserId)
+    const query = params.toString()
+    try {
+      const res = await fetch(
+        `/api/projects/time-report-options${query ? `?${query}` : ''}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      )
+      if (!res.ok) {
+        setMyProjects([])
+        return
+      }
+      const data = await res.json()
+      const list = Array.isArray(data?.projects) ? data.projects : []
+      setMyProjects(mapApiProjectsToOptions(list))
+    } catch {
+      setMyProjects([])
+    }
   }, [])
+
+  useEffect(() => {
+    if (!currentUser) return
+    void fetchTimeReportProjects(isAdmin && reportForUserId ? reportForUserId : currentUser.id)
+  }, [currentUser, isAdmin, reportForUserId, fetchTimeReportProjects])
 
   useEffect(() => {
     if (!reportForUserId) return
@@ -489,10 +501,7 @@ function TimeReportPageContent() {
   }
 
   const addEntry = () => {
-    setEntries([
-      ...entries,
-      { hours: 0, description: '', machineHours: null, startTime: '', endTime: '', machineType: '', registrationNumber: '' },
-    ])
+    setEntries([...entries, emptyTimeReportEntryRow()])
   }
 
   const removeEntry = (index: number) => {
@@ -632,14 +641,15 @@ function TimeReportPageContent() {
           missingHoursReason: remainingHours > 0 ? missingHoursReason : null,
           buyerReference: buyerReference.trim() || null,
           ...(isAdmin && reportForUserId ? { forUserId: reportForUserId } : {}),
-          entries: entries.map(e => ({
+          entries: entries.map((e) => ({
             hours: e.hours,
             description: e.description,
             machineHours: e.machineHours,
             startTime: e.startTime,
             endTime: e.endTime,
-            machineType: e.machineType,
-            registrationNumber: e.registrationNumber,
+            vehicleId: e.vehicleMode === 'registry' ? e.vehicleId : null,
+            machineType: e.vehicleMode === 'manual' ? e.machineType : '',
+            registrationNumber: e.vehicleMode === 'manual' ? e.registrationNumber : '',
           })),
         }),
       })
@@ -664,17 +674,7 @@ function TimeReportPageContent() {
         }
         const savedMonthKey = selectedDate.slice(0, 7)
         sessionStorage.setItem('timelaps:lastReportMonth', savedMonthKey)
-        setEntries([
-          {
-            hours: 0,
-            description: '',
-            machineHours: null,
-            startTime: '',
-            endTime: '',
-            machineType: '',
-            registrationNumber: '',
-          },
-        ])
+        setEntries([emptyTimeReportEntryRow()])
         setMissingHoursReason('')
         setBuyerReference('')
         setPendingImages([])
@@ -721,21 +721,13 @@ function TimeReportPageContent() {
       return
     }
     const missingRegForChosenVehicle = entries.find(
-      (entry: any) =>
+      (entry) =>
+        entry.vehicleMode === 'manual' &&
         !!(entry.machineType && String(entry.machineType).trim()) &&
         !(entry.registrationNumber && String(entry.registrationNumber).trim())
     )
     if (missingRegForChosenVehicle) {
-      alert('Om du väljer fordon måste reg.nr anges på den aktiviteten.')
-      return
-    }
-    const regWithoutVehicle = entries.find(
-      (entry: any) =>
-        !(entry.machineType && String(entry.machineType).trim()) &&
-        !!(entry.registrationNumber && String(entry.registrationNumber).trim())
-    )
-    if (regWithoutVehicle) {
-      alert('Välj först fordon på den rad där du fyllt i reg.nr – eller lämna reg.nr tomt.')
+      alert('Om du anger fordon manuellt måste reg.nr fyllas i.')
       return
     }
 
@@ -1073,23 +1065,24 @@ function TimeReportPageContent() {
             <label className="block text-sm font-medium mb-2">
               Koppla till projekt <span className="font-normal text-gray-500">(valfritt)</span>
             </label>
-            <select
+            {isAdmin ? (
+              <p className="text-xs text-gray-600 mb-2">
+                Visar alla aktiva projekt i företaget.
+              </p>
+            ) : (
+              <p className="text-xs text-gray-600 mb-2">
+                Du kan välja alla projekt. De som är tilldelade dig är markerade.
+              </p>
+            )}
+            <TimeReportProjectSelect
+              projects={myProjects}
               value={selectedProjectId}
-              onChange={(e) => {
-                const projectId = e.target.value
+              isAdmin={isAdmin}
+              onChange={(projectId, customerId) => {
                 setSelectedProjectId(projectId)
-                const customerId = customerIdForSelectedProject(myProjects, projectId)
                 if (customerId) setSelectedCustomer(customerId)
               }}
-              className="w-full px-4 py-2 border border-gray-300 rounded-md"
-            >
-              <option value="">Inget projekt valt</option>
-              {myProjects.map((project) => (
-                <option key={project.id} value={project.id}>
-                  {project.name}
-                </option>
-              ))}
-            </select>
+            />
           </div>
 
           <div className="mb-6">
@@ -1186,41 +1179,20 @@ function TimeReportPageContent() {
                     />
                   </div>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-2">
-                  <div>
-                    <label className="block text-sm font-medium mb-1">
-                      Fordon <span className="font-normal text-gray-500">(valfritt)</span>
-                    </label>
-                    <select
-                      value={(entry as any).machineType || ''}
-                      onChange={(e) => updateEntry(index, 'machineType', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                    >
-                      <option value="">Välj fordon</option>
-                      {MACHINE_OPTIONS.map((machine) => (
-                        <option key={machine} value={machine}>
-                          {machine}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium mb-1">
-                      Reg.nr{' '}
-                      <span className="font-normal text-gray-500">(lämna tomt om inget fordon)</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={(entry as any).registrationNumber || ''}
-                      onChange={(e) => updateEntry(index, 'registrationNumber', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                      placeholder="Lämnas blankt om inget fordon väljs"
-                      required={
-                        !!(entry.machineType && String(entry.machineType).trim())
-                      }
-                    />
-                  </div>
-                </div>
+                <VehicleEntryFields
+                  vehicles={companyVehicles}
+                  value={{
+                    vehicleId: entry.vehicleId || '',
+                    vehicleMode: entry.vehicleMode || '',
+                    machineType: entry.machineType || '',
+                    registrationNumber: entry.registrationNumber || '',
+                  }}
+                  onChange={(patch) => {
+                    const updated = [...entries]
+                    updated[index] = { ...updated[index], ...patch }
+                    setEntries(updated)
+                  }}
+                />
                 <div className="mb-2">
                   <label className="block text-sm font-medium mb-1">Beskrivning:</label>
                   <textarea

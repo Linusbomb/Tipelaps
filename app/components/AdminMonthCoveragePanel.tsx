@@ -4,7 +4,7 @@ import { Fragment, useMemo, useState } from 'react'
 import Link from 'next/link'
 import type { DayCoverage, MonthCoverageSummary } from '@/lib/monthDayCoverage'
 import { countTimeReportWeekdays, formatCoverageDateSv } from '@/lib/monthDayCoverage'
-import { formatMonthYearSv } from '@/lib/monthReporting'
+import { formatMonthYearSv, shouldShowMonthCoverageReportingWarnings } from '@/lib/monthReporting'
 import {
   filterCoverageAbsencesOnDate,
   filterCoverageTimeReportsOnDate,
@@ -86,6 +86,7 @@ export default function AdminMonthCoveragePanel({
   }
 
   const hasCompanyWarnings = companySummary.employeesWithIssues > 0
+  const showReportingWarnings = shouldShowMonthCoverageReportingWarnings(month)
   const visibleEmployees = onlyWithIssues
     ? employees.filter((e) => e.hasWarnings)
     : employees
@@ -143,7 +144,8 @@ export default function AdminMonthCoveragePanel({
         </div>
       ) : null}
 
-      {hasCompanyWarnings ? (
+      {showReportingWarnings ? (
+        hasCompanyWarnings ? (
         <div className="mx-4 mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-950">
           <p className="font-semibold">Varning</p>
           <p className="mt-1">
@@ -151,11 +153,12 @@ export default function AdminMonthCoveragePanel({
             rapportering.
           </p>
         </div>
-      ) : (
+        ) : (
         <div className="mx-4 mt-4 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-900">
           Alla anställda har komplett rapportering på passerade vardagar.
         </div>
-      )}
+        )
+      ) : null}
 
       <div className="px-4 py-3 flex flex-wrap items-center gap-3 border-b border-gray-100">
         <label className="inline-flex items-center gap-2 text-sm text-gray-700 cursor-pointer">

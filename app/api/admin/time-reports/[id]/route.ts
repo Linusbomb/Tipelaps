@@ -4,6 +4,7 @@ import { verifyToken } from '@/lib/auth'
 import { isBuyerReferenceUnsupported } from '@/lib/prismaCompat'
 import { persistReportOvertimeHours } from '@/lib/overtime'
 import { cleanClockTime, persistTimeEntryClockTimes } from '@/lib/timeEntryClockTimes'
+import { normalizeTimeReportEntries } from '@/lib/vehicleEntryApi'
 
 export const dynamic = 'force-dynamic'
 
@@ -23,13 +24,6 @@ async function getUser(request: NextRequest) {
   })
 
   return user
-}
-
-function parseVehicleCombined(vehicle: string | null | undefined): { type: string; reg: string } {
-  if (!vehicle || !vehicle.trim()) return { type: '', reg: '' }
-  const m = vehicle.trim().match(/^(.+?) \(([^)]+)\)\s*$/)
-  if (m) return { type: m[1].trim(), reg: m[2].trim() }
-  return { type: vehicle.trim(), reg: '' }
 }
 
 export async function GET(
@@ -129,71 +123,45 @@ export async function PUT(
       return NextResponse.json({ error: 'Du har inte behörighet att redigera denna rapport' }, { status: 403 })
     }
 
+    const { entries: normalizedEntries, error: entryError } = await normalizeTimeReportEntries(
+      adminCompanyId!,
+      entries,
+      cleanClockTime
+    )
+    if (entryError) {
+      return NextResponse.json({ error: entryError }, { status: 400 })
+    }
+
     const cleanedRows: Array<{
       hours: number
       machineHours: number | null
       description: string
       vehicle: string | null
+      vehicleId: string | null
       startTime: string | null
       endTime: string | null
       location: string | null
       referenceNumber: string | null
     }> = []
 
-    for (let i = 0; i < entries.length; i++) {
+    for (let i = 0; i < normalizedEntries.length; i++) {
+      const entry = normalizedEntries[i]
       const raw = entries[i]
-      const hours = parseFloat(raw.hours)
-      const description = typeof raw.description === 'string' ? raw.description.trim() : ''
-      if (!hours || hours <= 0) {
+      if (!entry.hours || entry.hours <= 0) {
         return NextResponse.json({ error: `Rad ${i + 1}: arbetade timmar måste vara större än 0` }, { status: 400 })
       }
-      if (!description) {
+      if (!entry.description) {
         return NextResponse.json({ error: `Rad ${i + 1}: beskrivning krävs` }, { status: 400 })
       }
 
-      let machineHours: number | null =
-        raw.machineHours !== undefined && raw.machineHours !== null && raw.machineHours !== ''
-          ? parseFloat(raw.machineHours)
-          : null
-      if (machineHours !== null && Number.isNaN(machineHours)) {
-        machineHours = null
-      }
-
-      let machineType = typeof raw.machineType === 'string' ? raw.machineType.trim() : ''
-      let registrationNumber = typeof raw.registrationNumber === 'string' ? raw.registrationNumber.trim() : ''
-      const vehicleLegacy = typeof raw.vehicle === 'string' ? raw.vehicle.trim() : ''
-
-      if (!machineType && !registrationNumber && vehicleLegacy) {
-        const parsed = parseVehicleCombined(vehicleLegacy)
-        machineType = parsed.type
-        registrationNumber = parsed.reg || registrationNumber
-      }
-
-      const hasVehicleType = !!(machineType && machineType.trim())
-      const hasReg = !!(registrationNumber && registrationNumber.trim())
-      if (hasVehicleType && !hasReg) {
-        return NextResponse.json(
-          { error: `Rad ${i + 1}: reg.nr måste anges om fordon väljs` },
-          { status: 400 }
-        )
-      }
-      if (!hasVehicleType && hasReg) {
-        return NextResponse.json(
-          { error: `Rad ${i + 1}: välj fordon eller ta bort reg.nr` },
-          { status: 400 }
-        )
-      }
-
-      const vehicleCombined =
-        machineType && registrationNumber ? `${machineType.trim()} (${registrationNumber.trim()})` : null
-
       cleanedRows.push({
-        hours,
-        machineHours,
-        description,
-        vehicle: vehicleCombined,
-        startTime: cleanClockTime(raw.startTime),
-        endTime: cleanClockTime(raw.endTime),
+        hours: entry.hours,
+        machineHours: entry.machineHours,
+        description: entry.description,
+        vehicle: entry.vehicle,
+        vehicleId: entry.vehicleId,
+        startTime: entry.startTime,
+        endTime: entry.endTime,
         location: typeof raw.location === 'string' && raw.location.trim() ? raw.location.trim() : null,
         referenceNumber:
           typeof raw.referenceNumber === 'string' && raw.referenceNumber.trim()
@@ -259,6 +227,7 @@ export async function PUT(
               machineHours: row.machineHours,
               description: row.description,
               vehicle: row.vehicle,
+              vehicleId: row.vehicleId,
               location: row.location,
               referenceNumber: row.referenceNumber,
             })),

@@ -50,6 +50,20 @@ export function isNearMonthEnd(now = new Date(), daysBeforeEnd = 5) {
   return now.getDate() >= lastDay - daysBeforeEnd + 1
 }
 
+/**
+ * Visa varning om saknad/ofullständig vardagsrapportering:
+ * - innevarande månad: endast sista dagarna (isNearMonthEnd)
+ * - tidigare månader: alltid (retroaktiv uppföljning)
+ */
+export function shouldShowMonthCoverageReportingWarnings(
+  monthKey: string,
+  now = new Date()
+) {
+  if (isPastMonth(monthKey, now)) return true
+  if (isCurrentMonth(monthKey, now) && isNearMonthEnd(now)) return true
+  return false
+}
+
 /** Första dagarna i ny månad – påminn om föregående månads utkast. */
 export function isEarlyInMonth(now = new Date(), daysAfterStart = 7) {
   return now.getDate() <= daysAfterStart

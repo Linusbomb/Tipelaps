@@ -1,124 +1,65 @@
-'use client'
-
 import Link from 'next/link'
-import LvtechCornerLogo from './components/LvtechCornerLogo'
-import TimeLapsHeroBrand from './components/TimeLapsHeroBrand'
+import TimeLapsHeroBrand from '@/app/components/TimeLapsHeroBrand'
+import MarketingShell from '@/app/components/marketing/MarketingShell'
+import HowItWorksSection from '@/app/components/marketing/HowItWorksSection'
+import WhyChooseUsSection from '@/app/components/marketing/WhyChooseUsSection'
 
-export default function Home() {
+export default function MarketingHomePage() {
   return (
-    <div className="relative" style={{ backgroundColor: '#E8E8D8', minHeight: '100vh' }}>
-      <LvtechCornerLogo />
-      {/* Hero Section */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 sm:py-14 md:py-20">
-        <div className="text-center mb-10 sm:mb-14 pt-14 sm:pt-12">
-          <TimeLapsHeroBrand className="-mt-2" />
-        </div>
-
-        {/* Login Cards */}
-        <div className="max-w-4xl mx-auto mb-12 sm:mb-16">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
-            <Link
-              href="/login?type=admin"
-              className="group relative overflow-hidden rounded-2xl p-6 sm:p-8 transition-all duration-300 hover:shadow-2xl hover:-translate-y-1 bg-marble-beige"
-              style={{ 
-                border: '2px solid rgba(45, 80, 22, 0.2)',
-              }}
-            >
-              <div className="absolute top-0 right-0 w-32 h-32 bg-primary-600 rounded-full -mr-16 -mt-16 opacity-20 group-hover:opacity-30 transition-opacity"></div>
-              <div className="relative">
-                <div className="text-5xl sm:text-6xl mb-4 sm:mb-6 group-hover:scale-110 transition-transform duration-300">👔</div>
-                <h3 className="text-xl sm:text-2xl font-bold mb-2 sm:mb-3" style={{ color: '#2D5016' }}>Admin</h3>
-                <p className="mb-3 sm:mb-4 leading-relaxed text-sm sm:text-base" style={{ color: '#2D5016' }}>
-                  Hantera personal, granska tidrapporter och godkänn månadsinlämningar.
-                </p>
-                <div className="flex items-center font-semibold text-sm sm:text-base group-hover:translate-x-2 transition-transform" style={{ color: '#2D5016' }}>
-                  Logga in som admin
-                  <span className="ml-2">→</span>
-                </div>
+    <MarketingShell>
+      <section className="relative overflow-hidden border-b border-[#2D5016]/10">
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_#C5E89A40,_transparent_55%)]" />
+        <div className="relative mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-24 lg:px-8">
+          <div className="grid items-center gap-12 lg:grid-cols-[1.1fr_0.9fr]">
+            <div>
+              <p className="mb-4 text-sm font-semibold uppercase tracking-widest text-[#2D5016]/80">
+                part of LVtech
+              </p>
+              <h1 className="text-3xl font-bold leading-tight text-[#2D5016] sm:text-4xl lg:text-5xl">
+                Tidrapportering som fungerar för entreprenörer och byggteam
+              </h1>
+              <p className="mt-6 max-w-xl text-lg leading-relaxed text-[#2D5016]/85">
+                TimeLaps samlar timmar, projekt, fordon och personal på ett ställe. Mindre
+                administration — mer tid till det som skapar värde.
+              </p>
+              <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+                <Link
+                  href="/sa-funkar-det"
+                  className="inline-flex items-center justify-center rounded-lg bg-[#2D5016] px-6 py-3 text-sm font-semibold text-white hover:bg-[#234012]"
+                >
+                  Så kommer ni igång
+                </Link>
+                <Link
+                  href="/portal"
+                  className="inline-flex items-center justify-center rounded-lg border border-[#2D5016]/25 bg-white px-6 py-3 text-sm font-semibold text-[#2D5016] hover:bg-[#2D5016]/5"
+                >
+                  Befintlig kund? Logga in
+                </Link>
               </div>
-            </Link>
-            
-            <Link
-              href="/login?type=employee"
-              className="group relative overflow-hidden rounded-2xl p-6 sm:p-8 transition-all duration-300 hover:shadow-2xl hover:-translate-y-1 bg-marble-beige"
-              style={{ 
-                border: '2px solid rgba(45, 80, 22, 0.2)',
-              }}
-            >
-              <div className="absolute top-0 right-0 w-32 h-32 bg-primary-600 rounded-full -mr-16 -mt-16 opacity-20 group-hover:opacity-30 transition-opacity"></div>
-              <div className="relative">
-                <div className="text-5xl sm:text-6xl mb-4 sm:mb-6 group-hover:scale-110 transition-transform duration-300">👷</div>
-                <h3 className="text-xl sm:text-2xl font-bold mb-2 sm:mb-3" style={{ color: '#2D5016' }}>Personal</h3>
-                <p className="mb-3 sm:mb-4 leading-relaxed text-sm sm:text-base" style={{ color: '#2D5016' }}>
-                  Registrera dagliga timmar och skicka in månaden till din chef.
-                </p>
-                <div className="flex items-center font-semibold text-sm sm:text-base group-hover:translate-x-2 transition-transform" style={{ color: '#2D5016' }}>
-                  Logga in som personal
-                  <span className="ml-2">→</span>
-                </div>
-              </div>
-            </Link>
-          </div>
-        </div>
-
-        <div className="text-center mb-14 sm:mb-20">
-          <p className="text-base sm:text-lg font-medium" style={{ color: '#2D5016' }}>
-            Inget konto? Kontakta admin på ditt företag.
-          </p>
-        </div>
-
-        {/* Features Section */}
-        <div className="max-w-6xl mx-auto">
-          <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold text-center mb-8 sm:mb-12" style={{ color: '#2D5016' }}>
-            Varför välja oss?
-          </h2>
-          <div className="grid grid-cols-1 gap-4 sm:gap-6 lg:gap-8 sm:grid-cols-2 lg:grid-cols-3">
-            <div className="p-6 sm:p-8 rounded-2xl transition-all duration-300 hover:shadow-xl hover:-translate-y-1 bg-marble-beige" style={{ border: '1px solid rgba(45, 80, 22, 0.2)' }}>
-              <div className="text-4xl sm:text-5xl mb-4 sm:mb-6">⏱️</div>
-              <h3 className="text-lg sm:text-xl font-bold mb-2 sm:mb-3" style={{ color: '#2D5016' }}>Daglig tidrapportering</h3>
-              <p className="leading-relaxed text-sm sm:text-base" style={{ color: '#2D5016' }}>
-                Fyll i arbetstid enkelt varje dag direkt i systemet.
-              </p>
             </div>
-            <div className="p-6 sm:p-8 rounded-2xl transition-all duration-300 hover:shadow-xl hover:-translate-y-1 bg-marble-beige" style={{ border: '1px solid rgba(45, 80, 22, 0.2)' }}>
-              <div className="text-4xl sm:text-5xl mb-4 sm:mb-6">📊</div>
-              <h3 className="text-lg sm:text-xl font-bold mb-2 sm:mb-3" style={{ color: '#2D5016' }}>Månadsöversikt</h3>
-              <p className="leading-relaxed text-sm sm:text-base" style={{ color: '#2D5016' }}>
-                Se en tydlig sammanställning av timmar per månad.
-              </p>
-            </div>
-            <div className="p-6 sm:p-8 rounded-2xl transition-all duration-300 hover:shadow-xl hover:-translate-y-1 bg-marble-beige" style={{ border: '1px solid rgba(45, 80, 22, 0.2)' }}>
-              <div className="text-4xl sm:text-5xl mb-4 sm:mb-6">🔒</div>
-              <h3 className="text-lg sm:text-xl font-bold mb-2 sm:mb-3" style={{ color: '#2D5016' }}>Säker inloggning</h3>
-              <p className="leading-relaxed text-sm sm:text-base" style={{ color: '#2D5016' }}>
-                Logga in med e-post och personligt lösenord.
-              </p>
-            </div>
-            <div className="p-6 sm:p-8 rounded-2xl transition-all duration-300 hover:shadow-xl hover:-translate-y-1 bg-marble-beige" style={{ border: '1px solid rgba(45, 80, 22, 0.2)' }}>
-              <div className="text-4xl sm:text-5xl mb-4 sm:mb-6">📤</div>
-              <h3 className="text-lg sm:text-xl font-bold mb-2 sm:mb-3" style={{ color: '#2D5016' }}>Skicka till chef</h3>
-              <p className="leading-relaxed text-sm sm:text-base" style={{ color: '#2D5016' }}>
-                Skicka in månadens rapport med ett klick vid månadsskifte.
-              </p>
-            </div>
-            <div className="p-6 sm:p-8 rounded-2xl transition-all duration-300 hover:shadow-xl hover:-translate-y-1 bg-marble-beige" style={{ border: '1px solid rgba(45, 80, 22, 0.2)' }}>
-              <div className="text-4xl sm:text-5xl mb-4 sm:mb-6">📁</div>
-              <h3 className="text-lg sm:text-xl font-bold mb-2 sm:mb-3" style={{ color: '#2D5016' }}>Adminhantering</h3>
-              <p className="leading-relaxed text-sm sm:text-base" style={{ color: '#2D5016' }}>
-                Admin kan hantera personal, kategorier och inkomna rapporter.
-              </p>
-            </div>
-            <div className="p-6 sm:p-8 rounded-2xl transition-all duration-300 hover:shadow-xl hover:-translate-y-1 bg-marble-beige" style={{ border: '1px solid rgba(45, 80, 22, 0.2)' }}>
-              <div className="text-4xl sm:text-5xl mb-4 sm:mb-6">✅</div>
-              <h3 className="text-lg sm:text-xl font-bold mb-2 sm:mb-3" style={{ color: '#2D5016' }}>Enkelt och snabbt</h3>
-              <p className="leading-relaxed text-sm sm:text-base" style={{ color: '#2D5016' }}>
-                Byggt för att vara lätt att använda för både admin och personal.
-              </p>
+            <div className="rounded-2xl border border-[#2D5016]/10 bg-white/80 p-8 shadow-lg backdrop-blur-sm">
+              <TimeLapsHeroBrand embedded showTagline={false} className="justify-center" />
+              <ul className="mt-8 space-y-3 text-sm text-[#2D5016]/90">
+                <li className="flex gap-2">
+                  <span aria-hidden>✓</span>
+                  Daglig tidrapportering för personal
+                </li>
+                <li className="flex gap-2">
+                  <span aria-hidden>✓</span>
+                  Adminöversikt, godkännande och export
+                </li>
+                <li className="flex gap-2">
+                  <span aria-hidden>✓</span>
+                  Projekt, kunder, fordon och nyheter
+                </li>
+              </ul>
             </div>
           </div>
         </div>
+      </section>
 
-      </div>
-    </div>
+      <HowItWorksSection variant="preview" />
+      <WhyChooseUsSection variant="preview" />
+    </MarketingShell>
   )
 }

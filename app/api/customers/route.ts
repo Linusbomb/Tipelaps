@@ -37,11 +37,13 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url)
     const activeOnly = searchParams.get('activeOnly') === 'true'
+    const includeDeleted = searchParams.get('includeDeleted') === 'true'
 
     const customers = await prisma.customer.findMany({
       where: {
         companyId,
-        ...(activeOnly ? { archivedAt: null } : {}),
+        ...(activeOnly ? { archivedAt: null, deletedAt: null } : {}),
+        ...(!activeOnly && !includeDeleted ? { deletedAt: null } : {}),
       },
       orderBy: { name: 'asc' },
     })

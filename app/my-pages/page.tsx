@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import EmployeeDocumentsPanel from '@/app/components/EmployeeDocumentsPanel'
 
 export default function MyPages() {
   const router = useRouter()
@@ -335,6 +336,24 @@ export default function MyPages() {
           </button>
         </form>
       </div>
+
+      {user?.id ? (
+        <div className="mb-6 sm:mb-8">
+          <EmployeeDocumentsPanel
+            userId={user.id}
+            onNotify={({ type, text }) => {
+              if (type === 'success') {
+                setSuccess(text)
+                setError('')
+                setTimeout(() => setSuccess(''), 3000)
+              } else {
+                setError(text)
+                setSuccess('')
+              }
+            }}
+          />
+        </div>
+      ) : null}
 
       {/* Närmast anhörig */}
       <div className="bg-white shadow rounded-lg p-4 sm:p-6">

@@ -83,6 +83,10 @@ export async function PUT(
       return NextResponse.json({ error: 'Kund hittades inte' }, { status: 404 })
     }
 
+    if (existingCustomer.deletedAt) {
+      return NextResponse.json({ error: 'Raderad kund kan inte redigeras. Återställ kunden först.' }, { status: 409 })
+    }
+
     const normalizedOrgNumber =
       organizationNumber === undefined || organizationNumber === null || organizationNumber === ''
         ? null
@@ -169,6 +173,7 @@ export async function PATCH(
     }
 
     const body = await request.json().catch(() => ({}))
+    const restore = body?.restore === true
     const archive = body?.active === true ? false : body?.archive !== false
 
     const existingCustomer = await prisma.customer.findUnique({
@@ -176,6 +181,18 @@ export async function PATCH(
     })
     if (!existingCustomer || existingCustomer.companyId !== companyId) {
       return NextResponse.json({ error: 'Kund hittades inte' }, { status: 404 })
+    }
+
+    if (restore) {
+      const customer = await prisma.customer.update({
+        where: { id: params.id },
+        data: { deletedAt: null, archivedAt: null },
+      })
+      return NextResponse.json(customer)
+    }
+
+    if (existingCustomer.deletedAt) {
+      return NextResponse.json({ error: 'Raderad kund kan inte ändras. Återställ kunden först.' }, { status: 409 })
     }
 
     const customer = await prisma.customer.update({
@@ -210,29 +227,47 @@ export async function DELETE(
 
     const existingCustomer = await prisma.customer.findUnique({
       where: { id: params.id },
-      select: { id: true, companyId: true, name: true },
+      select: { id: true, companyId: true, name: true, deletedAt: true },
     })
     if (!existingCustomer || existingCustomer.companyId !== companyId) {
       return NextResponse.json({ error: 'Kund hittades inte' }, { status: 404 })
     }
 
-    const [timeReportsCount, projectsCount] = await Promise.all([
-      prisma.timeReport.count({ where: { customerId: params.id } }),
-      prisma.project.count({ where: { customerId: params.id } }),
-    ])
-    if (timeReportsCount > 0 || projectsCount > 0) {
+    if (existingCustomer.deletedAt) {
+      return NextResponse.json({ error: 'Kunden är redan raderad.' }, { status: 409 })
+    }
+
+    const activeProjectsCount = await prisma.project.count({
+      where: {
+        customerId: params.id,
+        employees: { some: { completed: false } },
+      },
+    })
+    if (activeProjectsCount > 0) {
       return NextResponse.json(
-        { error: 'Kunden kan inte raderas eftersom den har tidrapporter eller projekt.' },
+        {
+          error: `Kunden har ${activeProjectsCount} aktiva projekt. Avsluta projekten först innan kunden kan raderas.`,
+        },
         { status: 409 }
       )
     }
 
-    await prisma.customer.delete({ where: { id: params.id } })
-    return NextResponse.json({ ok: true })
-  } catch (error: any) {
+    const customer = await prisma.customer.update({
+      where: { id: params.id },
+      data: { deletedAt: new Date() },
+    })
+
+    return NextResponse.json(customer)
+  } catch (error: unknown) {
     console.error('Fel vid radering av kund:', error)
+    const details =
+      error instanceof Error && error.message.includes('deletedAt')
+        ? 'Databasen saknar kolumnen deletedAt. Kör prisma migrate deploy.'
+        : error instanceof Error
+          ? error.message
+          : undefined
     return NextResponse.json(
-      { error: 'Kunde inte radera kund' },
+      { error: details ? `Kunde inte radera kund: ${details}` : 'Kunde inte radera kund' },
       { status: 500 }
     )
   }

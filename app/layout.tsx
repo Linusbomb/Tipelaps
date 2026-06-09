@@ -8,8 +8,9 @@ import { Providers } from './providers'
 const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: 'TimeLaps - Enkel tidrapportering för entreprenörer',
-  description: 'Samla in och hantera personalens tidrapporter enkelt och smidigt',
+  title: 'TimeLaps — Tidrapportering för entreprenörer | LVtech',
+  description:
+    'TimeLaps samlar tidrapportering, projekt och personal i en portal. Kontakta LVtech för demo — befintliga kunder loggar in via appen.',
 }
 
 export default function RootLayout({

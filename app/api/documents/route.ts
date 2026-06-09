@@ -1,11 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { verifyToken } from '@/lib/auth'
+import { adminEffectiveCompanyId } from '@/lib/apiAdmin'
+import { isEmployeeDocumentType } from '@/lib/employeeDocuments'
+import { parseDateOnlyToStorage } from '@/lib/parseDateOnlyLocal'
 import { writeFile, mkdir } from 'fs/promises'
 import { join } from 'path'
+import { existsSync } from 'fs'
 
 export const dynamic = 'force-dynamic'
-import { existsSync } from 'fs'
+
+const ADMIN_ROLES = new Set(['ENTREPRENEUR', 'PAYROLL_COORDINATOR'])
+const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024
 
 async function getUser(request: NextRequest) {
   const authHeader = request.headers.get('authorization')
@@ -17,12 +23,41 @@ async function getUser(request: NextRequest) {
   const decoded = verifyToken(token)
   if (!decoded) return null
 
-  const user = await prisma.user.findUnique({
+  return prisma.user.findUnique({
     where: { id: decoded.userId },
-    include: { company: true },
+    include: { company: true, ownedCompany: true },
+  })
+}
+
+function parseOptionalDate(value: string | null | undefined): Date | null {
+  if (!value) return null
+  const trimmed = String(value).trim()
+  if (!trimmed) return null
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    return parseDateOnlyToStorage(trimmed)
+  }
+  const parsed = new Date(trimmed)
+  return Number.isNaN(parsed.getTime()) ? null : parsed
+}
+
+async function canAccessEmployeeDocuments(
+  user: NonNullable<Awaited<ReturnType<typeof getUser>>>,
+  targetUserId: string
+) {
+  if (targetUserId === user.id) return true
+  if (!ADMIN_ROLES.has(user.role)) return false
+
+  const adminCompanyId = adminEffectiveCompanyId(user)
+  if (!adminCompanyId) return false
+
+  const targetUser = await prisma.user.findUnique({
+    where: { id: targetUserId },
+    select: { companyId: true, employmentEndedAt: true },
   })
 
-  return user
+  return Boolean(
+    targetUser && !targetUser.employmentEndedAt && targetUser.companyId === adminCompanyId
+  )
 }
 
 export async function GET(request: NextRequest) {
@@ -33,44 +68,21 @@ export async function GET(request: NextRequest) {
     }
 
     const { searchParams } = new URL(request.url)
-    const userId = searchParams.get('userId')
+    const userId = searchParams.get('userId') || user.id
 
-    // Kontrollera behörighet
-    if (userId && userId !== user.id) {
-      // Om det är en annan användare, kontrollera om det är chef/lönesamordnare
-      if (user.role !== 'ENTREPRENEUR' && user.role !== 'PAYROLL_COORDINATOR') {
-        return NextResponse.json({ error: 'Ej behörig' }, { status: 403 })
-      }
-
-      // Kontrollera att användaren tillhör samma företag
-      const targetUser = await prisma.user.findUnique({
-        where: { id: userId },
-      })
-
-      if (!targetUser || targetUser.companyId !== user.companyId) {
-        return NextResponse.json({ error: 'Ej behörig' }, { status: 403 })
-      }
-    }
-
-    const where: any = {}
-    if (userId) {
-      where.userId = userId
-    } else {
-      where.userId = user.id
+    if (!(await canAccessEmployeeDocuments(user, userId))) {
+      return NextResponse.json({ error: 'Ej behörig' }, { status: 403 })
     }
 
     const documents = await prisma.employeeDocument.findMany({
-      where,
+      where: { userId },
       orderBy: { createdAt: 'desc' },
     })
 
     return NextResponse.json(documents)
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Fel vid hämtning av dokument:', error)
-    return NextResponse.json(
-      { error: 'Kunde inte hämta dokument' },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: 'Kunde inte hämta dokument' }, { status: 500 })
   }
 }
 
@@ -83,12 +95,12 @@ export async function POST(request: NextRequest) {
 
     const formData = await request.formData()
     const file = formData.get('file') as File
-    const type = formData.get('type') as string
-    const title = formData.get('title') as string
-    const userId = formData.get('userId') as string
-    const expiryDate = formData.get('expiryDate') as string
-    const issuedDate = formData.get('issuedDate') as string
-    const description = formData.get('description') as string
+    const type = String(formData.get('type') || '').trim()
+    const title = String(formData.get('title') || '').trim()
+    const userId = String(formData.get('userId') || '').trim()
+    const expiryDate = formData.get('expiryDate') as string | null
+    const issuedDate = formData.get('issuedDate') as string | null
+    const description = String(formData.get('description') || '').trim()
 
     if (!file || !type || !title || !userId) {
       return NextResponse.json(
@@ -97,62 +109,51 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Kontrollera behörighet
-    if (userId !== user.id) {
-      if (user.role !== 'ENTREPRENEUR' && user.role !== 'PAYROLL_COORDINATOR') {
-        return NextResponse.json({ error: 'Ej behörig' }, { status: 403 })
-      }
-
-      const targetUser = await prisma.user.findUnique({
-        where: { id: userId },
-      })
-
-      if (!targetUser || targetUser.companyId !== user.companyId) {
-        return NextResponse.json({ error: 'Ej behörig' }, { status: 403 })
-      }
+    if (!isEmployeeDocumentType(type)) {
+      return NextResponse.json({ error: 'Ogiltig dokumenttyp' }, { status: 400 })
     }
 
-    // Skapa uploads-mapp om den inte finns
+    if (!(await canAccessEmployeeDocuments(user, userId))) {
+      return NextResponse.json({ error: 'Ej behörig' }, { status: 403 })
+    }
+
+    if (file.size > MAX_FILE_SIZE_BYTES) {
+      return NextResponse.json({ error: 'Filen får vara högst 10 MB' }, { status: 400 })
+    }
+
     const uploadsDir = join(process.cwd(), 'uploads', userId)
     if (!existsSync(uploadsDir)) {
       await mkdir(uploadsDir, { recursive: true })
     }
 
-    // Generera unikt filnamn
     const timestamp = Date.now()
     const originalName = file.name
-    const extension = originalName.split('.').pop()
     const fileName = `${timestamp}-${originalName}`
     const filePath = join(uploadsDir, fileName)
 
-    // Spara filen
     const bytes = await file.arrayBuffer()
     const buffer = Buffer.from(bytes)
     await writeFile(filePath, buffer)
 
-    // Spara dokument i databasen
     const document = await prisma.employeeDocument.create({
       data: {
         userId,
-        type: type as any,
+        type,
         title,
         fileName: originalName,
         filePath: `uploads/${userId}/${fileName}`,
         fileSize: file.size,
-        mimeType: file.type,
-        expiryDate: expiryDate ? new Date(expiryDate) : null,
-        issuedDate: issuedDate ? new Date(issuedDate) : null,
+        mimeType: file.type || 'application/octet-stream',
+        expiryDate: parseOptionalDate(expiryDate),
+        issuedDate: parseOptionalDate(issuedDate),
         description: description || null,
         uploadedBy: user.id,
       },
     })
 
     return NextResponse.json(document, { status: 201 })
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Fel vid uppladdning av dokument:', error)
-    return NextResponse.json(
-      { error: 'Kunde inte ladda upp dokument' },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: 'Kunde inte ladda upp dokument' }, { status: 500 })
   }
 }

@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none" role="img" aria-label="TimeLaps">
+  <defs>
+    <linearGradient id="tl-bg" x1="20" y1="12" x2="108" y2="116" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#4E8F2C"/>
+      <stop offset="0.45" stop-color="#2D5016"/>
+      <stop offset="1" stop-color="#1A3310"/>
+    </linearGradient>
+    <radialGradient id="tl-shine" cx="34%" cy="28%" r="55%" fx="34%" fy="28%">
+      <stop stop-color="#FFFFFF" stop-opacity="0.28"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="tl-ring" x1="32" y1="32" x2="96" y2="96" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#E8FFD8"/>
+      <stop offset="1" stop-color="#8BCF62"/>
+    </linearGradient>
+    <linearGradient id="tl-lap" x1="64" y1="24" x2="104" y2="88" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#D4FFAA"/>
+      <stop offset="1" stop-color="#6FAF3A"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="112" height="112" rx="32" fill="url(#tl-bg)"/>
+  <rect x="8" y="8" width="112" height="112" rx="32" fill="url(#tl-shine)"/>
+  <path d="M64 28 A36 36 0 1 1 38 92" stroke="url(#tl-lap)" stroke-width="6" stroke-linecap="round" fill="none" opacity="0.35"/>
+  <path d="M64 36 A28 28 0 1 1 44 84" stroke="#C5E89A" stroke-width="4.5" stroke-linecap="round" fill="none" opacity="0.5"/>
+  <path d="M64 44 A20 20 0 1 1 52 78" stroke="url(#tl-ring)" stroke-width="5" stroke-linecap="round" fill="none"/>
+  <circle cx="64" cy="64" r="3.8" fill="#F4FFE8"/>
+  <path d="M64 64 L64 50" stroke="#F4FFE8" stroke-width="4.5" stroke-linecap="round"/>
+  <path d="M64 64 L76 70" stroke="#B8E986" stroke-width="4.5" stroke-linecap="round"/>
+  <path d="M88 40 L98 32 M98 32 H86 M98 32 V44" stroke="#EEFAD9" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="64" cy="46" r="1.6" fill="#EEFAD9" opacity="0.85"/>
+  <circle cx="82" cy="64" r="1.6" fill="#EEFAD9" opacity="0.65"/>
+  <circle cx="64" cy="82" r="1.6" fill="#EEFAD9" opacity="0.45"/>
+</svg>

@@ -7,17 +7,8 @@ import HoursInput from '@/app/components/HoursInput'
 import OvertimeSummary from '@/app/components/OvertimeSummary'
 import { computeOvertimeHours } from '@/lib/overtime'
 import UnlockTimeReportingButton from '@/app/components/UnlockTimeReportingButton'
-
-const MACHINE_OPTIONS = [
-  'Hjullastare',
-  'Grävmaskin',
-  'Minigrävare',
-  'Dumper',
-  'Lastbil',
-  'Kranbil',
-  'Vält',
-  'Annat',
-]
+import VehicleEntryFields, { type CompanyVehicleOption } from '@/app/components/VehicleEntryFields'
+import { mapApiEntriesToFormRows } from '@/lib/timeReportForm'
 
 type Customer = { id: string; name: string }
 
@@ -29,40 +20,30 @@ type EntryRow = {
   endTime: string
   machineType: string
   registrationNumber: string
+  vehicleId: string
+  vehicleMode: '' | 'registry' | 'manual'
   description: string
   /** Valfritt; följer databas om satt tidigare */
   location: string
   referenceNumber: string
 }
 
-function parseVehicleCombined(vehicle: string | null | undefined): { type: string; reg: string } {
-  if (!vehicle || !vehicle.trim()) return { type: '', reg: '' }
-  const m = vehicle.trim().match(/^(.+?) \(([^)]+)\)\s*$/)
-  if (m) return { type: m[1].trim(), reg: m[2].trim() }
-  return { type: vehicle.trim(), reg: '' }
-}
-
-function entryFromApi(en: any): EntryRow {
-  let machineType = ''
-  let registrationNumber = ''
-  if (en.vehicle) {
-    const p = parseVehicleCombined(en.vehicle)
-    machineType = p.type
-    registrationNumber = p.reg
-    if (machineType && !MACHINE_OPTIONS.includes(machineType)) {
-      registrationNumber = [machineType, registrationNumber].filter(Boolean).join(' ').trim()
-      machineType = 'Annat'
-    }
-  }
+function entryFromApi(en: {
+  id?: string
+  hours?: number | null
+  machineHours?: number | null
+  startTime?: string | null
+  endTime?: string | null
+  vehicle?: string | null
+  vehicleId?: string | null
+  description?: string | null
+  location?: string | null
+  referenceNumber?: string | null
+}): EntryRow {
+  const base = mapApiEntriesToFormRows([en])[0]
   return {
     id: en.id,
-    hours: Number(en.hours) || 0,
-    machineHours:
-      en.machineHours !== null && en.machineHours !== undefined ? Number(en.machineHours) : null,
-    startTime: en.startTime || '',
-    endTime: en.endTime || '',
-    machineType,
-    registrationNumber,
+    ...base,
     description: en.description || '',
     location: en.location || '',
     referenceNumber: en.referenceNumber || '',
@@ -92,6 +73,7 @@ export default function AdminTimeReportDetailPage() {
   const [buyerReference, setBuyerReference] = useState('')
   const [entries, setEntries] = useState<EntryRow[]>([])
   const [customers, setCustomers] = useState<Customer[]>([])
+  const [companyVehicles, setCompanyVehicles] = useState<CompanyVehicleOption[]>([])
   const [newCustomerName, setNewCustomerName] = useState('')
   const [creatingCustomer, setCreatingCustomer] = useState(false)
 
@@ -119,11 +101,14 @@ export default function AdminTimeReportDetailPage() {
         return
       }
 
-      const [reportRes, customersRes] = await Promise.all([
+      const [reportRes, customersRes, vehiclesRes] = await Promise.all([
         fetch(`/api/admin/time-reports/${reportId}`, {
           headers: { Authorization: `Bearer ${token}` },
         }),
         fetch('/api/customers?activeOnly=true', {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+        fetch('/api/vehicles?activeOnly=true', {
           headers: { Authorization: `Bearer ${token}` },
         }),
       ])
@@ -134,6 +119,10 @@ export default function AdminTimeReportDetailPage() {
       if (customersRes.ok) {
         const customerData = await customersRes.json()
         setCustomers(customerData)
+      }
+      if (vehiclesRes.ok) {
+        const vehicleData = await vehiclesRes.json()
+        setCompanyVehicles(Array.isArray(vehicleData) ? vehicleData : [])
       }
 
       setEmployeeName(reportData.user?.name || '')
@@ -162,7 +151,19 @@ export default function AdminTimeReportDetailPage() {
       setEntries(
         rows.length > 0
           ? rows
-          : [{ hours: 0, machineHours: null, startTime: '', endTime: '', machineType: '', registrationNumber: '', description: '', location: '', referenceNumber: '' }]
+          : [{
+              hours: 0,
+              machineHours: null,
+              startTime: '',
+              endTime: '',
+              machineType: '',
+              registrationNumber: '',
+              vehicleId: '',
+              vehicleMode: '',
+              description: '',
+              location: '',
+              referenceNumber: '',
+            }]
       )
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Något gick fel')
@@ -189,6 +190,8 @@ export default function AdminTimeReportDetailPage() {
         endTime: '',
         machineType: '',
         registrationNumber: '',
+        vehicleId: '',
+        vehicleMode: '',
         description: '',
         location: '',
         referenceNumber: '',
@@ -212,17 +215,13 @@ export default function AdminTimeReportDetailPage() {
       }
 
       const missingRegForChosenVehicle = entries.find(
-        (e) => !!(e.machineType && String(e.machineType).trim()) && !e.registrationNumber.trim()
+        (e) =>
+          e.vehicleMode === 'manual' &&
+          !!(e.machineType && String(e.machineType).trim()) &&
+          !e.registrationNumber.trim()
       )
       if (missingRegForChosenVehicle) {
-        setError('Reg.nr måste anges på raden om fordon väljs (samma krav som för personal).')
-        return
-      }
-      const regWithoutVehicle = entries.find(
-        (e) => !(e.machineType && String(e.machineType).trim()) && !!e.registrationNumber.trim()
-      )
-      if (regWithoutVehicle) {
-        setError('Välj fordon eller ta bort reg.nr på alla rader.')
+        setError('Reg.nr måste anges om fordon anges manuellt.')
         return
       }
 
@@ -250,8 +249,9 @@ export default function AdminTimeReportDetailPage() {
             machineHours: e.machineHours,
             startTime: e.startTime,
             endTime: e.endTime,
-            machineType: e.machineType,
-            registrationNumber: e.registrationNumber,
+            vehicleId: e.vehicleMode === 'registry' ? e.vehicleId : null,
+            machineType: e.vehicleMode === 'manual' ? e.machineType : '',
+            registrationNumber: e.vehicleMode === 'manual' ? e.registrationNumber : '',
             description: e.description,
             location: e.location,
             referenceNumber: e.referenceNumber,
@@ -542,38 +542,16 @@ export default function AdminTimeReportDetailPage() {
                     />
                   </div>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">
-                      Fordon <span className="font-normal text-gray-500">(valfritt)</span>
-                    </label>
-                    <select
-                      value={entry.machineType}
-                      onChange={(e) => updateEntry(index, { machineType: e.target.value })}
-                      className="w-full px-3 py-2 border rounded-md"
-                    >
-                      <option value="">Välj fordon</option>
-                      {MACHINE_OPTIONS.map((m) => (
-                        <option key={m} value={m}>
-                          {m}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">
-                      Reg.nr <span className="font-normal text-gray-400">(om fordon saknas lämna tomt)</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={entry.registrationNumber}
-                      onChange={(e) => updateEntry(index, { registrationNumber: e.target.value })}
-                      className="w-full px-3 py-2 border rounded-md"
-                      placeholder="Krävs bara om ett fordon valts"
-                      required={!!(entry.machineType && entry.machineType.trim())}
-                    />
-                  </div>
-                </div>
+                <VehicleEntryFields
+                  vehicles={companyVehicles}
+                  value={{
+                    vehicleId: entry.vehicleId || '',
+                    vehicleMode: entry.vehicleMode || '',
+                    machineType: entry.machineType || '',
+                    registrationNumber: entry.registrationNumber || '',
+                  }}
+                  onChange={(patch) => updateEntry(index, patch)}
+                />
                 <div className="mb-3">
                   <label className="block text-xs font-medium text-gray-600 mb-1">Beskrivning</label>
                   <textarea

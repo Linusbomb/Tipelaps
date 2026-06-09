@@ -71,10 +71,13 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const token = generateToken(user.id, user.email, user.role)
+    const rememberMe = body.rememberMe === true
+    const token = generateToken(user.id, user.email, user.role, rememberMe)
 
     return NextResponse.json({
       token,
+      rememberMe,
+      expiresInDays: rememberMe ? 90 : 7,
       user: {
         id: user.id,
         name: user.name,

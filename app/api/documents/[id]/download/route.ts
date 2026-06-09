@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { verifyToken } from '@/lib/auth'
+import { adminEffectiveCompanyId } from '@/lib/apiAdmin'
 import { readFile } from 'fs/promises'
 import { join } from 'path'
 
 export const dynamic = 'force-dynamic'
+
+const ADMIN_ROLES = new Set(['ENTREPRENEUR', 'PAYROLL_COORDINATOR'])
 
 async function getUser(request: NextRequest) {
   const authHeader = request.headers.get('authorization')
@@ -16,12 +19,10 @@ async function getUser(request: NextRequest) {
   const decoded = verifyToken(token)
   if (!decoded) return null
 
-  const user = await prisma.user.findUnique({
+  return prisma.user.findUnique({
     where: { id: decoded.userId },
-    include: { company: true },
+    include: { company: true, ownedCompany: true },
   })
-
-  return user
 }
 
 export async function GET(
@@ -45,13 +46,12 @@ export async function GET(
       return new NextResponse('Dokument hittades inte', { status: 404 })
     }
 
-    // Kontrollera behörighet
     if (document.userId !== user.id) {
-      if (user.role !== 'ENTREPRENEUR' && user.role !== 'PAYROLL_COORDINATOR') {
+      if (!ADMIN_ROLES.has(user.role)) {
         return new NextResponse('Ej behörig', { status: 403 })
       }
-
-      if (document.user.companyId !== user.companyId) {
+      const adminCompanyId = adminEffectiveCompanyId(user)
+      if (!adminCompanyId || document.user.companyId !== adminCompanyId) {
         return new NextResponse('Ej behörig', { status: 403 })
       }
     }

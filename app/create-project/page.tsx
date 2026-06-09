@@ -17,6 +17,8 @@ interface Employee {
 interface Customer {
   id: string
   name: string
+  archivedAt?: string | null
+  deletedAt?: string | null
 }
 
 interface AddressSuggestion {
@@ -157,6 +159,7 @@ function CreateProjectPageContent() {
   const [editEmployeeEquipment, setEditEmployeeEquipment] = useState<Record<string, string>>({})
   const [savingProjectEdit, setSavingProjectEdit] = useState(false)
   const [uploadingProjectImage, setUploadingProjectImage] = useState(false)
+  const [pendingProjectImages, setPendingProjectImages] = useState<File[]>([])
   const [adminCompletingKey, setAdminCompletingKey] = useState<string | null>(null)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
@@ -166,6 +169,7 @@ function CreateProjectPageContent() {
   const [completedProjectDetailsOpen, setCompletedProjectDetailsOpen] = useState<Record<string, boolean>>({})
   const [newCustomerName, setNewCustomerName] = useState('')
   const [addingCustomer, setAddingCustomer] = useState(false)
+  const [customerLoadError, setCustomerLoadError] = useState('')
   /** Antal projekt att visa i listorna; utökas med «Visa fler». */
   const [ongoingProjectsVisible, setOngoingProjectsVisible] = useState(PROJECT_LIST_PAGE_SIZE)
   const [completedProjectsVisible, setCompletedProjectsVisible] = useState(PROJECT_LIST_PAGE_SIZE)
@@ -175,6 +179,15 @@ function CreateProjectPageContent() {
   const [completedProjectSearch, setCompletedProjectSearch] = useState('')
   const [completedFilterYear, setCompletedFilterYear] = useState<number>(new Date().getFullYear())
   const [completedFilterMonth, setCompletedFilterMonth] = useState<'ALL' | number>('ALL')
+
+  const customerSelectOptions = useMemo(
+    () =>
+      customers.map((customer) => ({
+        id: customer.id,
+        name: customer.archivedAt ? `${customer.name} (Inaktiv)` : customer.name,
+      })),
+    [customers]
+  )
 
   const ongoingProjectsList = useMemo(() => {
     const list = activeProjects.filter(
@@ -410,22 +423,34 @@ function CreateProjectPageContent() {
 
   const fetchCustomers = async () => {
     try {
+      setCustomerLoadError('')
       const token = localStorage.getItem('token')
-      const response = await fetch('/api/customers?activeOnly=true', {
+      const response = await fetch('/api/customers', {
         headers: {
-          'Authorization': `Bearer ${token}`,
+          Authorization: `Bearer ${token}`,
         },
       })
 
-      if (response.ok) {
-        const data = await response.json()
-        setCustomers(data)
-        if (data.length > 0) {
-          setCustomerId(data[0].id)
-        }
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({} as { error?: string }))
+        throw new Error(data.error || 'Kunde inte hämta kunder')
+      }
+
+      const data = await response.json()
+      const list: Customer[] = Array.isArray(data) ? data : []
+      setCustomers(list)
+      if (list.length > 0) {
+        setCustomerId((current) =>
+          current && list.some((customer) => customer.id === current) ? current : list[0].id
+        )
+      } else {
+        setCustomerId('')
       }
     } catch (err) {
       console.error('Kunde inte hämta kunder:', err)
+      setCustomerLoadError(err instanceof Error ? err.message : 'Kunde inte hämta kunder')
+      setCustomers([])
+      setCustomerId('')
     }
   }
 
@@ -619,19 +644,17 @@ function CreateProjectPageContent() {
     }
   }
 
-  const uploadProjectImage = async (file: File) => {
-    if (!editProjectId) return
-    try {
-      setUploadingProjectImage(true)
-      setError('')
-      const token = localStorage.getItem('token')
-      if (!token) {
-        window.location.href = '/login'
-        return
-      }
+  const uploadImagesToProject = async (projectId: string, files: File[]) => {
+    const token = localStorage.getItem('token')
+    if (!token) {
+      window.location.href = '/login'
+      return
+    }
+
+    for (const file of files) {
       const formData = new FormData()
       formData.append('file', file)
-      formData.append('projectId', editProjectId)
+      formData.append('projectId', projectId)
       const response = await fetch('/api/project-attachments', {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
@@ -639,6 +662,30 @@ function CreateProjectPageContent() {
       })
       const data = await response.json()
       if (!response.ok) throw new Error(data.error || 'Kunde inte ladda upp bild')
+    }
+  }
+
+  const addPendingProjectImages = (files: FileList | null) => {
+    if (!files?.length) return
+    const imageFiles = Array.from(files).filter((file) => file.type.startsWith('image/'))
+    if (imageFiles.length === 0) {
+      setError('Endast bilder tillåts')
+      return
+    }
+    setPendingProjectImages((current) => [...current, ...imageFiles])
+    setError('')
+  }
+
+  const removePendingProjectImage = (index: number) => {
+    setPendingProjectImages((current) => current.filter((_, i) => i !== index))
+  }
+
+  const uploadProjectImage = async (file: File) => {
+    if (!editProjectId) return
+    try {
+      setUploadingProjectImage(true)
+      setError('')
+      await uploadImagesToProject(editProjectId, [file])
       await fetchActiveProjects()
       setSuccess('Bild uppladdad till projektet')
       setTimeout(() => setSuccess(''), 2600)
@@ -769,7 +816,24 @@ function CreateProjectPageContent() {
         throw new Error(data.error || 'Kunde inte skapa projekt')
       }
 
-      setSuccess('✅ Projekt skapat!')
+      const newProjectId = data.id as string | undefined
+      if (pendingProjectImages.length > 0 && newProjectId) {
+        try {
+          await uploadImagesToProject(newProjectId, pendingProjectImages)
+        } catch (uploadErr: any) {
+          setSuccess('Projekt skapat, men en eller flera bilder kunde inte laddas upp.')
+          setError(uploadErr.message || 'Kunde inte ladda upp alla bilder')
+          fetchActiveProjects()
+          setLoading(false)
+          return
+        }
+      }
+
+      setSuccess(
+        pendingProjectImages.length > 0
+          ? `✅ Projekt skapat med ${pendingProjectImages.length} bild${pendingProjectImages.length > 1 ? 'er' : ''}!`
+          : '✅ Projekt skapat!'
+      )
       // Rensa formuläret
       setProjectName('')
       setAddress('')
@@ -782,6 +846,7 @@ function CreateProjectPageContent() {
       setSelectedEmployees([])
       setEmployeeEquipment({})
       setDescription('')
+      setPendingProjectImages([])
       fetchActiveProjects()
       
       // Rensa success-meddelandet efter 3 sekunder
@@ -1096,7 +1161,7 @@ function CreateProjectPageContent() {
                 minDate={new Date()}
               />
             </div>
-            <div>
+            <div className="relative z-[1200]">
               <div className="flex items-center justify-between mb-1">
                 <label htmlFor="customerId" className="block text-sm font-medium text-gray-700">
                   Kund *
@@ -1151,12 +1216,19 @@ function CreateProjectPageContent() {
               )}
               <SearchableSelect
                 id="customerId"
-                options={customers}
+                options={customerSelectOptions}
                 value={customerId}
                 onChange={setCustomerId}
                 placeholder="Välj kund"
                 required
               />
+              {customerLoadError ? (
+                <p className="mt-1 text-xs text-red-600">{customerLoadError}</p>
+              ) : customerSelectOptions.length === 0 ? (
+                <p className="mt-1 text-xs text-amber-700">
+                  Inga kunder hittades. Skapa en via + Ny kund eller under Kunder i menyn.
+                </p>
+              ) : null}
             </div>
           </div>
 
@@ -1240,12 +1312,61 @@ function CreateProjectPageContent() {
             </p>
           </div>
 
+          <div>
+            <p className="text-sm font-medium text-gray-700 mb-2">
+              Projektbilder <span className="font-normal text-gray-500">(valfritt)</span>
+            </p>
+            <div className="flex flex-wrap items-center gap-3">
+              <label className="px-3 py-2 rounded-md border border-gray-300 bg-white text-sm cursor-pointer hover:bg-gray-50">
+                Välj bilder
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => {
+                    addPendingProjectImages(e.target.files)
+                    e.currentTarget.value = ''
+                  }}
+                />
+              </label>
+              <span className="text-xs text-gray-500">
+                Bilderna laddas upp när projektet skapas och blir synliga i projektet.
+              </span>
+            </div>
+            {pendingProjectImages.length > 0 ? (
+              <ul className="mt-3 space-y-2">
+                {pendingProjectImages.map((file, index) => (
+                  <li
+                    key={`${file.name}-${file.size}-${index}`}
+                    className="flex items-center justify-between gap-2 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-800"
+                  >
+                    <span className="truncate">{file.name}</span>
+                    <button
+                      type="button"
+                      onClick={() => removePendingProjectImage(index)}
+                      className="shrink-0 text-xs font-medium text-red-700 hover:text-red-800"
+                    >
+                      Ta bort
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-2 text-xs text-gray-500">Inga bilder valda ännu.</p>
+            )}
+          </div>
+
           <button
             type="submit"
             disabled={loading}
             className="w-full bg-primary-600 text-white py-3 px-4 rounded-md hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 disabled:opacity-50 font-medium"
           >
-            {loading ? 'Skapar projekt...' : 'Skapa projekt'}
+            {loading
+              ? pendingProjectImages.length > 0
+                ? 'Skapar projekt och laddar upp bilder...'
+                : 'Skapar projekt...'
+              : 'Skapa projekt'}
           </button>
         </form>
       </div>
@@ -1761,10 +1882,10 @@ function CreateProjectPageContent() {
                     required
                   />
                 </div>
-                <div>
+                <div className="relative z-[1200]">
                   <label className="block text-sm font-medium text-gray-700 mb-1">Kund *</label>
                   <SearchableSelect
-                    options={customers}
+                    options={customerSelectOptions}
                     value={editCustomerId}
                     onChange={setEditCustomerId}
                     placeholder="Välj kund"

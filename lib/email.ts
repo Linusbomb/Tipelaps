@@ -330,3 +330,60 @@ function stripBasicHtml(html: string): string {
     .trim()
 }
 
+export async function sendMarketingContactEmail(payload: {
+  companyName: string
+  contactName: string
+  email: string
+  phone?: string
+  employeeCount?: string
+  message: string
+}): Promise<boolean> {
+  const to =
+    process.env.MARKETING_CONTACT_EMAIL ||
+    process.env.SMTP_FROM ||
+    process.env.SMTP_USER ||
+    ''
+
+  if (!to) {
+    console.warn('MARKETING_CONTACT_EMAIL saknas — kontaktförfrågan loggas endast.')
+    console.info('Ny kundförfrågan:', payload)
+    return false
+  }
+
+  const lines = [
+    `Företag: ${payload.companyName}`,
+    `Kontaktperson: ${payload.contactName}`,
+    `E-post: ${payload.email}`,
+    payload.phone ? `Telefon: ${payload.phone}` : null,
+    payload.employeeCount ? `Antal anställda: ${payload.employeeCount}` : null,
+    '',
+    payload.message,
+  ].filter(Boolean)
+
+  try {
+    await transporter.sendMail({
+      from: process.env.SMTP_FROM || process.env.SMTP_USER || 'noreply@timelaps.se',
+      to,
+      replyTo: payload.email,
+      subject: `Ny förfrågan från ${payload.companyName} — TimeLaps`,
+      text: lines.join('\n'),
+      html: `<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body style="font-family:Arial,sans-serif;line-height:1.6;color:#333;">
+        <div style="max-width:600px;margin:0 auto;padding:24px;">
+          <h2 style="color:#2D5016;margin-top:0;">Ny kundförfrågan</h2>
+          <p><strong>Företag:</strong> ${escapeHtml(payload.companyName)}</p>
+          <p><strong>Kontaktperson:</strong> ${escapeHtml(payload.contactName)}</p>
+          <p><strong>E-post:</strong> ${escapeHtml(payload.email)}</p>
+          ${payload.phone ? `<p><strong>Telefon:</strong> ${escapeHtml(payload.phone)}</p>` : ''}
+          ${payload.employeeCount ? `<p><strong>Antal anställda:</strong> ${escapeHtml(payload.employeeCount)}</p>` : ''}
+          <p><strong>Meddelande:</strong></p>
+          <p style="white-space:pre-wrap;background:#f5f5f5;padding:16px;border-radius:8px;">${escapeHtml(payload.message)}</p>
+        </div>
+      </body></html>`,
+    })
+    return true
+  } catch (error) {
+    console.error('Fel vid skickande av kundförfrågan:', error)
+    return false
+  }
+}
+

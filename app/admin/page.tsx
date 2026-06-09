@@ -224,9 +224,36 @@ export default function AdminPage() {
   return (
     <div className="container mx-auto px-3 sm:px-4 py-5 sm:py-8" style={{ backgroundColor: '#E8E8D8', minHeight: '100vh' }}>
       <div className="bg-white rounded-lg shadow-md p-4 sm:p-6">
-        <h1 className="text-2xl sm:text-3xl font-bold mb-5 sm:mb-6" style={{ color: '#2D5016' }}>
+        <h1 className="text-2xl sm:text-3xl font-bold mb-3 sm:mb-4" style={{ color: '#2D5016' }}>
           Admin - Tidrapporter
         </h1>
+
+        <div className="mb-5 sm:mb-6 flex flex-wrap gap-2">
+          <Link
+            href="/admin/customers"
+            className="inline-flex items-center rounded-md border border-green-700 bg-green-50 px-4 py-2 text-sm font-semibold text-green-900 hover:bg-green-100 transition"
+          >
+            Kunder
+          </Link>
+          <Link
+            href="/create-project"
+            className="inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50 transition"
+          >
+            Projekt
+          </Link>
+          <Link
+            href="/admin/my-staff"
+            className="inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50 transition"
+          >
+            Personal
+          </Link>
+          <Link
+            href="/admin/payroll-hours"
+            className="inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50 transition"
+          >
+            Lön &amp; tid
+          </Link>
+        </div>
 
         <div className="mb-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
           <div>

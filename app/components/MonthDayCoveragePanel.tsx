@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import type { DayCoverage, MonthCoverageSummary } from '@/lib/monthDayCoverage'
-import { formatMonthYearSv } from '@/lib/monthReporting'
+import { formatMonthYearSv, shouldShowMonthCoverageReportingWarnings } from '@/lib/monthReporting'
 import {
   filterCoverageAbsencesOnDate,
   filterCoverageTimeReportsOnDate,
@@ -57,6 +57,8 @@ export default function MonthDayCoveragePanel({
 
   const warningMissing = warnings.filter((d) => d.status === 'missing').length
   const warningPartial = warnings.filter((d) => d.status === 'partial').length
+  const showReportingWarnings = shouldShowMonthCoverageReportingWarnings(month)
+  const displayWarnings = showReportingWarnings && hasWarnings
 
   return (
     <>
@@ -112,7 +114,8 @@ export default function MonthDayCoveragePanel({
           </p>
         </div>
 
-        {hasWarnings ? (
+        {showReportingWarnings ? (
+          displayWarnings ? (
           <div className="mx-4 mb-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950">
             <p className="font-semibold">Varning — saknad eller ofullständig rapportering</p>
             <p className="mt-1">
@@ -128,11 +131,12 @@ export default function MonthDayCoveragePanel({
               )}
             </p>
           </div>
-        ) : (
+          ) : (
           <div className="mx-4 mb-4 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-900">
             Inga vardagar kvar att åtgärda denna månad (utkast räknas inte som saknade).
           </div>
-        )}
+          )
+        ) : null}
       </div>
 
       <CoverageDayDetailModal

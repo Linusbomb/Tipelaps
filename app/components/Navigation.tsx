@@ -1,15 +1,27 @@
 'use client'
 
 import Link from 'next/link'
-import Image from 'next/image'
 import { useLanguage } from '@/contexts/LanguageContext'
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { decodeJwtPayload } from '@/lib/decodeJwtPayload'
+import AdminNavMenu from '@/app/components/AdminNavMenu'
 
 const PROJECTS_BADGE_EVENT = 'projects-badge-refresh'
 
-const NAV_HIDDEN_PATHS = ['/', '/login', '/register', '/forgot-password', '/reset-password']
+const NAV_HIDDEN_PATHS = [
+  '/',
+  '/portal',
+  '/funktioner',
+  '/om-oss',
+  '/sa-funkar-det',
+  '/varfor-oss',
+  '/kontakt',
+  '/login',
+  '/register',
+  '/forgot-password',
+  '/reset-password',
+]
 
 const ACTIVE_NAV_STYLE = { backgroundColor: '#2D5016', color: '#FFFFFF' } as const
 const INACTIVE_NAV_STYLE = { color: '#2D5016' } as const
@@ -22,12 +34,6 @@ function isNavLinkActive(pathname: string, href: string): boolean {
   switch (href) {
     case '/dashboard':
       return path === '/dashboard'
-    case '/admin':
-      return (
-        path.startsWith('/admin/customers') ||
-        path.startsWith('/admin/time-reports') ||
-        path.startsWith('/admin/logo')
-      )
     case '/time-report':
       return path.startsWith('/time-report/')
     case '/my-reports':
@@ -36,14 +42,6 @@ function isNavLinkActive(pathname: string, href: string): boolean {
       return path.startsWith('/my-projects')
     case '/my-pages':
       return path.startsWith('/my-pages')
-    case '/create-project':
-      return path.startsWith('/create-project')
-    case '/admin/my-staff':
-      return path.startsWith('/admin/my-staff')
-    case '/admin/payroll-hours':
-      return path.startsWith('/admin/payroll-hours')
-    case '/admin/bundle-to-customer':
-      return path.startsWith('/admin/bundle-to-customer')
     default:
       return false
   }
@@ -52,7 +50,7 @@ function isNavLinkActive(pathname: string, href: string): boolean {
 function navLinkClassName(isActive: boolean, mobile: boolean): string {
   const base = mobile
     ? 'block w-full px-3 py-2 text-sm font-medium rounded-md'
-    : 'inline-flex items-center px-4 py-2 text-sm font-medium rounded-md min-h-[2.75rem]'
+    : 'inline-flex items-center px-6 py-2.5 text-sm font-medium rounded-md min-h-[2.75rem]'
   if (isActive) {
     return `${base} font-semibold text-white shadow-sm`
   }
@@ -181,16 +179,13 @@ export default function Navigation() {
   const currentPath = pathname || ''
   const isAdmin = userRole === 'ENTREPRENEUR' || userRole === 'PAYROLL_COORDINATOR'
 
-  const navLinks = (
-    <>
+  const navLinks = isAdmin ? (
+    <AdminNavMenu pathname={currentPath} />
+  ) : (
+    <div className="flex flex-wrap items-stretch justify-center gap-1 sm:gap-2">
       {hasDashboardNav(userRole) && (
         <AppNavLink href="/dashboard" pathname={currentPath}>
           {t('nav.dashboard')}
-        </AppNavLink>
-      )}
-      {isAdmin && (
-        <AppNavLink href="/admin" pathname={currentPath}>
-          {t('nav.admin')}
         </AppNavLink>
       )}
       <AppNavLink href="/time-report" pathname={currentPath}>
@@ -215,38 +210,23 @@ export default function Navigation() {
           ) : null}
         </AppNavLink>
       )}
-      {isAdmin && (
-        <>
-          <AppNavLink href="/create-project" pathname={currentPath}>
-            Projekt
-          </AppNavLink>
-          <AppNavLink href="/admin/my-staff" pathname={currentPath}>
-            Personal
-          </AppNavLink>
-          <AppNavLink href="/admin/payroll-hours" pathname={currentPath}>
-            Lön &amp; tid
-          </AppNavLink>
-          <AppNavLink href="/admin/bundle-to-customer" pathname={currentPath}>
-            Till kund
-          </AppNavLink>
-        </>
-      )}
       <AppNavLink href="/my-pages" pathname={currentPath}>
         {t('nav.myPages')}
       </AppNavLink>
-    </>
+    </div>
   )
 
-  const mobileNavLinks = (
+  const mobileNavLinks = isAdmin ? (
+    <AdminNavMenu
+      pathname={currentPath}
+      mobile
+      onNavigate={() => setIsMobileMenuOpen(false)}
+    />
+  ) : (
     <>
       {hasDashboardNav(userRole) && (
         <AppNavLink href="/dashboard" pathname={currentPath} mobile>
           {t('nav.dashboard')}
-        </AppNavLink>
-      )}
-      {isAdmin && (
-        <AppNavLink href="/admin" pathname={currentPath} mobile>
-          {t('nav.admin')}
         </AppNavLink>
       )}
       <AppNavLink href="/time-report" pathname={currentPath} mobile>
@@ -276,22 +256,6 @@ export default function Navigation() {
           ) : null}
         </AppNavLink>
       )}
-      {isAdmin && (
-        <>
-          <AppNavLink href="/create-project" pathname={currentPath} mobile>
-            Projekt
-          </AppNavLink>
-          <AppNavLink href="/admin/my-staff" pathname={currentPath} mobile>
-            Personal
-          </AppNavLink>
-          <AppNavLink href="/admin/payroll-hours" pathname={currentPath} mobile>
-            Lön &amp; tid
-          </AppNavLink>
-          <AppNavLink href="/admin/bundle-to-customer" pathname={currentPath} mobile>
-            Till kund
-          </AppNavLink>
-        </>
-      )}
       <AppNavLink href="/my-pages" pathname={currentPath} mobile>
         {t('nav.myPages')}
       </AppNavLink>
@@ -299,32 +263,22 @@ export default function Navigation() {
   )
 
   return (
-    <nav className="bg-white shadow-md" style={{ backgroundColor: '#FFFFFF' }}>
-      <div className="max-w-7xl mx-auto pl-1 pr-4 sm:pl-2 sm:pr-6 lg:pl-3 lg:pr-8">
+    <nav
+      className="sticky top-0 z-50 bg-white shadow-md"
+      style={{ backgroundColor: '#FFFFFF' }}
+    >
+      <div className="max-w-[100%] mx-auto px-3 sm:px-4 lg:px-8">
         <div className="py-2">
-          <div className="hidden md:grid md:grid-cols-[auto_1fr_auto] md:items-center md:gap-3 min-h-16">
-            <div className="inline-flex shrink-0 items-center pr-1 sm:pr-2">
-              <Image
-                src="/lvtech-logo.png"
-                alt="LVtech"
-                width={120}
-                height={120}
-                className="h-10 w-auto md:h-12"
-                priority
-              />
+          <div className="relative hidden md:flex md:items-center md:justify-center md:min-h-[3.25rem] md:py-1">
+            <div className="flex w-full justify-center overflow-visible px-16" aria-label="Huvudmeny">
+              {navLinks}
             </div>
 
-            <div className="flex justify-center min-w-0 px-2" aria-label="Huvudmeny">
-              <div className="flex flex-wrap items-stretch justify-center divide-x divide-gray-300">
-                {navLinks}
-              </div>
-            </div>
-
-            <div className="flex items-stretch justify-end shrink-0">
+            <div className="absolute right-0 top-1/2 flex -translate-y-1/2 items-center">
               <button
                 type="button"
                 onClick={handleLogout}
-                className="inline-flex items-center px-3 py-2 rounded-md text-sm font-medium hover:bg-gray-100 min-h-[2.75rem]"
+                className="inline-flex items-center rounded-xl border border-[#2D5016]/15 bg-[#EEF6E8] px-4 py-2 text-sm font-semibold hover:bg-[#E2F0D9] min-h-[2.5rem] whitespace-nowrap"
                 style={{ color: '#2D5016' }}
               >
                 {t('nav.logout')}
@@ -332,21 +286,10 @@ export default function Navigation() {
             </div>
           </div>
 
-          <div className="flex md:hidden items-center min-h-16 gap-2 sm:gap-3">
-            <div className="inline-flex shrink-0 items-center pr-1 sm:pr-2">
-              <Image
-                src="/lvtech-logo.png"
-                alt="LVtech"
-                width={120}
-                height={120}
-                className="h-10 w-auto"
-                priority
-              />
-            </div>
-
+          <div className="flex md:hidden items-center min-h-14 gap-2 sm:gap-3 py-1">
             <button
               type="button"
-              className="ml-auto inline-flex items-center justify-center rounded-md border px-3 py-2 text-sm font-medium"
+              className="ml-auto inline-flex items-center justify-center rounded-xl border border-[#2D5016]/15 bg-[#EEF6E8] px-4 py-2.5 text-sm font-semibold"
               style={{ color: '#2D5016', borderColor: '#D1D5DB' }}
               onClick={() => setIsMobileMenuOpen((prev) => !prev)}
               aria-expanded={isMobileMenuOpen}
@@ -357,12 +300,12 @@ export default function Navigation() {
           </div>
 
           {isMobileMenuOpen && (
-            <div className="md:hidden mt-2 border-t border-gray-200 pt-2 pb-1 space-y-1">
+            <div className="md:hidden mt-2 border-t border-[#2D5016]/10 pt-3 pb-2 space-y-2">
               {mobileNavLinks}
               <button
                 type="button"
                 onClick={handleLogout}
-                className="block w-full text-left px-3 py-2 text-sm font-medium rounded-md hover:bg-gray-100"
+                className="block w-full rounded-xl border border-[#2D5016]/15 bg-[#EEF6E8] px-4 py-3 text-left text-sm font-semibold hover:bg-[#E2F0D9]"
                 style={{ color: '#2D5016' }}
               >
                 {t('nav.logout')}

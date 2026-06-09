@@ -8,22 +8,45 @@ export type TimeReportEntryRow = {
   endTime: string
   machineType: string
   registrationNumber: string
+  vehicleId: string
+  vehicleMode: '' | 'registry' | 'manual'
 }
 
 export type MyProjectOption = {
   id: string
   name: string
   customerId: string
+  customerName?: string
+  isAssigned?: boolean
+  isActive?: boolean
 }
 
 export function mapApiProjectsToOptions(
-  projects: Array<{ id: string; name: string; customer?: { id: string } | null; customerId?: string }>
+  projects: Array<{
+    id: string
+    name: string
+    customer?: { id: string; name?: string } | null
+    customerId?: string
+    customerName?: string
+    isAssigned?: boolean
+    isActive?: boolean
+  }>
 ): MyProjectOption[] {
   return projects.map((project) => ({
     id: project.id,
     name: project.name,
     customerId: project.customer?.id || project.customerId || '',
+    customerName: project.customer?.name || project.customerName,
+    isAssigned: project.isAssigned,
+    isActive: project.isActive,
   }))
+}
+
+export function formatTimeReportProjectLabel(project: MyProjectOption, isAdmin: boolean) {
+  const customerSuffix = project.customerName ? ` — ${project.customerName}` : ''
+  if (isAdmin) return `${project.name}${customerSuffix}`
+  if (project.isAssigned) return `${project.name}${customerSuffix} (Tilldelad dig)`
+  return `${project.name}${customerSuffix}`
 }
 
 /** Kund kopplad till valt projekt (för autofyll i tidrapport). */
@@ -64,24 +87,16 @@ export function mapApiEntriesToFormRows(
     startTime?: string | null
     endTime?: string | null
     vehicle?: string | null
+    vehicleId?: string | null
   }>
 ): TimeReportEntryRow[] {
   if (!apiEntries.length) {
-    return [
-      {
-        hours: 0,
-        description: '',
-        machineHours: null,
-        startTime: '',
-        endTime: '',
-        machineType: '',
-        registrationNumber: '',
-      },
-    ]
+    return [emptyTimeReportEntryRow()]
   }
 
   return apiEntries.map((entry) => {
     const { machineType, registrationNumber } = parseVehicleFromEntry(entry.vehicle)
+    const vehicleId = entry.vehicleId?.trim() || ''
     return {
       hours: entry.hours ?? 0,
       description: entry.description ?? '',
@@ -90,8 +105,24 @@ export function mapApiEntriesToFormRows(
       endTime: entry.endTime ?? '',
       machineType,
       registrationNumber,
+      vehicleId,
+      vehicleMode: vehicleId ? 'registry' : machineType || registrationNumber ? 'manual' : '',
     }
   })
+}
+
+export function emptyTimeReportEntryRow(): TimeReportEntryRow {
+  return {
+    hours: 0,
+    description: '',
+    machineHours: null,
+    startTime: '',
+    endTime: '',
+    machineType: '',
+    registrationNumber: '',
+    vehicleId: '',
+    vehicleMode: '',
+  }
 }
 
 export function addDaysToIsoDate(isoDate: string, days: number): string {
