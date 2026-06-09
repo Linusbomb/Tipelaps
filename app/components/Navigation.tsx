@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { decodeJwtPayload } from '@/lib/decodeJwtPayload'
 import AdminNavMenu from '@/app/components/AdminNavMenu'
+import type { CompanyModuleId } from '@/lib/companyModules'
 
 const PROJECTS_BADGE_EVENT = 'projects-badge-refresh'
 
@@ -21,6 +22,7 @@ const NAV_HIDDEN_PATHS = [
   '/register',
   '/forgot-password',
   '/reset-password',
+  '/superadmin',
 ]
 
 const ACTIVE_NAV_STYLE = { backgroundColor: '#2D5016', color: '#FFFFFF' } as const
@@ -95,6 +97,7 @@ export default function Navigation() {
   const [userRole, setUserRole] = useState<string | null>(null)
   const [projectsPendingCount, setProjectsPendingCount] = useState(0)
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
+  const [enabledModules, setEnabledModules] = useState<CompanyModuleId[]>([])
 
   const fetchProjectsBadge = useCallback(async () => {
     if (typeof window === 'undefined') return
@@ -148,6 +151,22 @@ export default function Navigation() {
   }, [isLoggedIn, userRole, fetchProjectsBadge])
 
   useEffect(() => {
+    const token = localStorage.getItem('token')
+    if (!token) {
+      setEnabledModules([])
+      return
+    }
+    fetch('/api/company/modules', {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        setEnabledModules(Array.isArray(data?.modules) ? data.modules : [])
+      })
+      .catch(() => setEnabledModules([]))
+  }, [pathname, isLoggedIn])
+
+  useEffect(() => {
     setIsMobileMenuOpen(false)
   }, [pathname])
 
@@ -168,7 +187,7 @@ export default function Navigation() {
     router.push('/login')
   }
 
-  if (NAV_HIDDEN_PATHS.includes(pathname || '')) {
+  if (NAV_HIDDEN_PATHS.includes(pathname || '') || (pathname || '').startsWith('/superadmin/')) {
     return null
   }
 
@@ -178,9 +197,10 @@ export default function Navigation() {
 
   const currentPath = pathname || ''
   const isAdmin = userRole === 'ENTREPRENEUR' || userRole === 'PAYROLL_COORDINATOR'
+  const hasProjectsModule = enabledModules.length === 0 || enabledModules.includes('projects')
 
   const navLinks = isAdmin ? (
-    <AdminNavMenu pathname={currentPath} />
+    <AdminNavMenu pathname={currentPath} enabledModules={enabledModules} />
   ) : (
     <div className="flex flex-wrap items-stretch justify-center gap-1 sm:gap-2">
       {hasDashboardNav(userRole) && (
@@ -196,7 +216,7 @@ export default function Navigation() {
           {t('nav.myReports')}
         </AppNavLink>
       )}
-      {userRole === 'EMPLOYEE' && (
+      {userRole === 'EMPLOYEE' && hasProjectsModule && (
         <AppNavLink href="/my-projects" pathname={currentPath} className="gap-2">
           <span>Mina projekt</span>
           {projectsPendingCount > 0 ? (
@@ -220,6 +240,7 @@ export default function Navigation() {
     <AdminNavMenu
       pathname={currentPath}
       mobile
+      enabledModules={enabledModules}
       onNavigate={() => setIsMobileMenuOpen(false)}
     />
   ) : (
@@ -237,7 +258,7 @@ export default function Navigation() {
           {t('nav.myReports')}
         </AppNavLink>
       )}
-      {userRole === 'EMPLOYEE' && (
+      {userRole === 'EMPLOYEE' && hasProjectsModule && (
         <AppNavLink
           href="/my-projects"
           pathname={currentPath}

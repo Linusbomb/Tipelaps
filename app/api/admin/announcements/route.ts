@@ -7,6 +7,7 @@ import {
   dateInputToStorage,
   mapAnnouncementRecord,
 } from '@/lib/announcements'
+import { requireAdminCompanyModule } from '@/lib/companyModuleAccess'
 
 export const dynamic = 'force-dynamic'
 
@@ -47,17 +48,15 @@ async function validateRecipients(companyId: string, recipientIds: string[]) {
 
 export async function GET(request: NextRequest) {
   try {
-    const admin = await getAdmin(request)
-    if (!admin) {
-      return NextResponse.json({ error: 'Ej behörig' }, { status: 403 })
-    }
+    const access = await requireAdminCompanyModule(request, 'announcements')
+    if (!access.ok) return access.response
 
     const { searchParams } = new URL(request.url)
     const includeArchived = searchParams.get('includeArchived') === 'true'
 
     const announcements = await prisma.companyAnnouncement.findMany({
       where: {
-        companyId: admin.companyId,
+        companyId: access.companyId,
         ...(includeArchived ? {} : { archivedAt: null }),
       },
       include: {
@@ -89,10 +88,9 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const admin = await getAdmin(request)
-    if (!admin) {
-      return NextResponse.json({ error: 'Ej behörig' }, { status: 403 })
-    }
+    const access = await requireAdminCompanyModule(request, 'announcements')
+    if (!access.ok) return access.response
+    const admin = { user: access.user, companyId: access.companyId }
 
     const body = await request.json()
     const title = typeof body.title === 'string' ? body.title.trim() : ''

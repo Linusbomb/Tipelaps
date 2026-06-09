@@ -6,6 +6,7 @@ import { absenceHoursForPayroll, absenceTypeLabel } from '@/lib/absence'
 import { computeOvertime, HOLIDAY_WORK_OVERTIME_LABEL } from '@/lib/overtime'
 import { getWeekdaySwedishPublicHolidaysInMonth } from '@/lib/swedishPublicHolidays'
 import { getPayrollStaffForCompany } from '@/lib/payrollStaff'
+import { requireAdminCompanyModule } from '@/lib/companyModuleAccess'
 
 export const dynamic = 'force-dynamic'
 
@@ -36,10 +37,9 @@ const MONTH_REGEX = /^\d{4}-\d{2}$/
 
 export async function GET(request: NextRequest) {
   try {
-    const auth = await getAdminUser(request)
-    if (!auth) {
-      return NextResponse.json({ error: 'Ej auktoriserad' }, { status: 401 })
-    }
+    const access = await requireAdminCompanyModule(request, 'payroll')
+    if (!access.ok) return access.response
+    const auth = { user: access.user, companyId: access.companyId }
 
     const { searchParams } = new URL(request.url)
     const month = searchParams.get('month')

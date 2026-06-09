@@ -11,6 +11,7 @@ export type AuditAction =
   | 'REGISTER_EMPLOYEE'
   | 'COMPANY_CREATE'
   | 'COMPANY_RENAME'
+  | 'COMPANY_PROFILE_UPDATE'
   | 'COMPANY_DELETE'
   | 'COMPANY_OWNER_PASSWORD_RESET'
   | 'IMPERSONATE_START'
@@ -21,6 +22,7 @@ export type AuditAction =
   | 'DATA_EXPORT_SELF'
   | 'DATA_EXPORT_COMPANY'
   | 'DATA_EXPORT_SUPERADMIN'
+  | 'COMPANY_MODULES_UPDATE'
 
 export type AuditActor = {
   id?: string | null

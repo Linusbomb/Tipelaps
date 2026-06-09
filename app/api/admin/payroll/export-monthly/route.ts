@@ -5,6 +5,7 @@ import { verifyToken } from '@/lib/auth'
 import { absenceHoursForPayroll, absenceTypeLabel } from '@/lib/absence'
 import { computeOvertimeHours } from '@/lib/overtime'
 import { getPayrollStaffForCompany } from '@/lib/payrollStaff'
+import { requireAdminCompanyModule } from '@/lib/companyModuleAccess'
 
 export const dynamic = 'force-dynamic'
 
@@ -84,10 +85,9 @@ function formatOvertimeDetails(
 
 export async function GET(request: NextRequest) {
   try {
-    const auth = await getAdminUser(request)
-    if (!auth) {
-      return NextResponse.json({ error: 'Ej auktoriserad' }, { status: 401 })
-    }
+    const access = await requireAdminCompanyModule(request, 'payroll')
+    if (!access.ok) return access.response
+    const auth = { user: access.user, companyId: access.companyId }
 
     const { searchParams } = new URL(request.url)
     const month = searchParams.get('month')

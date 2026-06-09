@@ -10,6 +10,9 @@ import {
   type AdminNavGroup,
   type AdminNavItem,
 } from '@/lib/adminNav'
+import { filterAdminNavGroups } from '@/lib/adminNavModules'
+import type { CompanyModuleId } from '@/lib/companyModules'
+import { DEFAULT_START_PACKAGE_MODULES } from '@/lib/companyModules'
 
 function ChevronDown({ open }: { open: boolean }) {
   return (
@@ -253,12 +256,17 @@ export default function AdminNavMenu({
   pathname,
   mobile = false,
   onNavigate,
+  enabledModules,
 }: {
   pathname: string
   mobile?: boolean
   onNavigate?: () => void
+  enabledModules?: CompanyModuleId[]
 }) {
-  const groups = getAdminNavGroups()
+  const groups = filterAdminNavGroups(
+    getAdminNavGroups(),
+    enabledModules && enabledModules.length > 0 ? enabledModules : DEFAULT_START_PACKAGE_MODULES
+  )
 
   if (mobile) {
     return (

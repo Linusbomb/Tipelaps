@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { hashPassword, requireSuperAdmin } from '@/lib/auth'
+import { ensureDefaultCompanyModules } from '@/lib/companyModuleAccess'
 import { logAudit } from '@/lib/audit'
+import { parseCompanyProfile } from '@/lib/companyProfile'
 
 export const dynamic = 'force-dynamic'
 
@@ -45,6 +47,13 @@ export async function GET(request: NextRequest) {
       id: c.id,
       name: c.name,
       createdAt: c.createdAt,
+      organizationNumber: c.organizationNumber,
+      address: c.address,
+      postalCode: c.postalCode,
+      city: c.city,
+      contactEmail: c.contactEmail,
+      phone: c.phone,
+      information: c.information,
       owner: c.owner,
       counts: {
         employeesTotal: c._count.employees,
@@ -76,6 +85,7 @@ export async function POST(request: NextRequest) {
   const adminPassword = typeof body?.adminPassword === 'string' ? body.adminPassword : ''
   const adminPhone = typeof body?.adminPhone === 'string' ? body.adminPhone.trim() : ''
   const consentAccepted = body?.consentAccepted === true
+  const profile = parseCompanyProfile(body)
 
   if (!companyName || !adminName || !adminEmail || !adminPassword) {
     return NextResponse.json(
@@ -120,6 +130,7 @@ export async function POST(request: NextRequest) {
       data: {
         name: companyName,
         ownerId: owner.id,
+        ...profile,
       },
     })
     const updatedOwner = await tx.user.update({
@@ -129,6 +140,8 @@ export async function POST(request: NextRequest) {
     })
     return { company, owner: updatedOwner }
   })
+
+  await ensureDefaultCompanyModules(result.company.id, superAdmin.id)
 
   await logAudit({
     action: 'COMPANY_CREATE',
@@ -149,6 +162,13 @@ export async function POST(request: NextRequest) {
       id: result.company.id,
       name: result.company.name,
       createdAt: result.company.createdAt,
+      organizationNumber: result.company.organizationNumber,
+      address: result.company.address,
+      postalCode: result.company.postalCode,
+      city: result.company.city,
+      contactEmail: result.company.contactEmail,
+      phone: result.company.phone,
+      information: result.company.information,
       owner: result.owner,
       counts: { employeesTotal: 1, employeesActive: 1, customers: 0, projects: 0 },
     },

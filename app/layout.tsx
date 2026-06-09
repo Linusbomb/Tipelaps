@@ -3,6 +3,9 @@ import { Inter } from 'next/font/google'
 import './globals.css'
 import 'leaflet/dist/leaflet.css'
 import Navigation from './components/Navigation'
+import ImpersonationBanner from './components/ImpersonationBanner'
+import SuperAdminPublicRedirect from './components/SuperAdminPublicRedirect'
+import SuperAdminAppRedirect from './components/SuperAdminAppRedirect'
 import { Providers } from './providers'
 
 const inter = Inter({ subsets: ['latin'] })
@@ -22,6 +25,9 @@ export default function RootLayout({
     <html lang="sv">
       <body className={inter.className}>
         <Providers>
+          <SuperAdminPublicRedirect />
+          <SuperAdminAppRedirect />
+          <ImpersonationBanner />
           <Navigation />
           <main className="min-h-screen" style={{ backgroundColor: '#E8E8D8' }}>
             {children}

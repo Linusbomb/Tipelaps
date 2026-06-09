@@ -7,6 +7,7 @@ import { parseDateOnlyToStorage } from '@/lib/parseDateOnlyLocal'
 import { writeFile, mkdir } from 'fs/promises'
 import { join } from 'path'
 import { existsSync } from 'fs'
+import { requireCompanyModuleAccess } from '@/lib/companyModuleAccess'
 
 export const dynamic = 'force-dynamic'
 
@@ -62,10 +63,9 @@ async function canAccessEmployeeDocuments(
 
 export async function GET(request: NextRequest) {
   try {
-    const user = await getUser(request)
-    if (!user) {
-      return NextResponse.json({ error: 'Ej auktoriserad' }, { status: 401 })
-    }
+    const access = await requireCompanyModuleAccess(request, 'employee_docs')
+    if (!access.ok) return access.response
+    const user = access.user
 
     const { searchParams } = new URL(request.url)
     const userId = searchParams.get('userId') || user.id
@@ -88,10 +88,9 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const user = await getUser(request)
-    if (!user) {
-      return NextResponse.json({ error: 'Ej auktoriserad' }, { status: 401 })
-    }
+    const access = await requireCompanyModuleAccess(request, 'employee_docs')
+    if (!access.ok) return access.response
+    const user = access.user
 
     const formData = await request.formData()
     const file = formData.get('file') as File

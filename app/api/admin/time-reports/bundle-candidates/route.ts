@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getAdminApiUser, adminEffectiveCompanyId } from '@/lib/apiAdmin'
+import { requireAdminCompanyModule } from '@/lib/companyModuleAccess'
 
 export const dynamic = 'force-dynamic'
 
@@ -8,19 +9,9 @@ const BUNDLE_ALLOWED_STATUS = ['SUBMITTED', 'APPROVED'] as const
 
 export async function GET(request: NextRequest) {
   try {
-    const user = await getAdminApiUser(request)
-    if (!user) {
-      return NextResponse.json({ error: 'Ej auktoriserad' }, { status: 401 })
-    }
-
-    if (user.role !== 'ENTREPRENEUR' && user.role !== 'PAYROLL_COORDINATOR') {
-      return NextResponse.json({ error: 'Endast för admin' }, { status: 403 })
-    }
-
-    const companyId = adminEffectiveCompanyId(user)
-    if (!companyId) {
-      return NextResponse.json({ error: 'Du måste tillhöra ett företag' }, { status: 400 })
-    }
+    const access = await requireAdminCompanyModule(request, 'customer_portal')
+    if (!access.ok) return access.response
+    const companyId = access.companyId
 
     const customerId = request.nextUrl.searchParams.get('customerId')
     const employeeId = request.nextUrl.searchParams.get('employeeId')

@@ -8,6 +8,7 @@ import {
   VACATION_WORK_DAYS,
   type VacationWorkDay,
 } from '@/lib/vacationPlanning'
+import { requireAdminCompanyModule } from '@/lib/companyModuleAccess'
 
 export const dynamic = 'force-dynamic'
 
@@ -65,19 +66,9 @@ function parseWeekEntries(body: {
 
 export async function GET(request: NextRequest) {
   try {
-    const user = await getUser(request)
-    if (!user) {
-      return NextResponse.json({ error: 'Ej auktoriserad' }, { status: 401 })
-    }
-
-    if (user.role !== 'ENTREPRENEUR' && user.role !== 'PAYROLL_COORDINATOR') {
-      return NextResponse.json({ error: 'Ej behörig' }, { status: 403 })
-    }
-
-    const companyId = user.ownedCompany?.id || user.companyId
-    if (!companyId) {
-      return NextResponse.json({ employees: [], vacations: [] })
-    }
+    const access = await requireAdminCompanyModule(request, 'vacation')
+    if (!access.ok) return access.response
+    const companyId = access.companyId
 
     const yearParam = new URL(request.url).searchParams.get('year')
     const year = Number(yearParam || new Date().getFullYear())
@@ -129,19 +120,9 @@ export async function GET(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
   try {
-    const user = await getUser(request)
-    if (!user) {
-      return NextResponse.json({ error: 'Ej auktoriserad' }, { status: 401 })
-    }
-
-    if (user.role !== 'ENTREPRENEUR' && user.role !== 'PAYROLL_COORDINATOR') {
-      return NextResponse.json({ error: 'Ej behörig' }, { status: 403 })
-    }
-
-    const companyId = user.ownedCompany?.id || user.companyId
-    if (!companyId) {
-      return NextResponse.json({ error: 'Företag saknas' }, { status: 400 })
-    }
+    const access = await requireAdminCompanyModule(request, 'vacation')
+    if (!access.ok) return access.response
+    const companyId = access.companyId
 
     const body = await request.json()
     const userId = body?.userId as string
@@ -202,19 +183,9 @@ export async function PUT(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
-    const user = await getUser(request)
-    if (!user) {
-      return NextResponse.json({ error: 'Ej auktoriserad' }, { status: 401 })
-    }
-
-    if (user.role !== 'ENTREPRENEUR' && user.role !== 'PAYROLL_COORDINATOR') {
-      return NextResponse.json({ error: 'Ej behörig' }, { status: 403 })
-    }
-
-    const companyId = user.ownedCompany?.id || user.companyId
-    if (!companyId) {
-      return NextResponse.json({ error: 'Företag saknas' }, { status: 400 })
-    }
+    const access = await requireAdminCompanyModule(request, 'vacation')
+    if (!access.ok) return access.response
+    const companyId = access.companyId
 
     const yearParam = new URL(request.url).searchParams.get('year')
     const year = Number(yearParam || new Date().getFullYear())

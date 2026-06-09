@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { verifyToken } from '@/lib/auth'
 import { adminEffectiveCompanyId } from '@/lib/apiAdmin'
 import { isAnnouncementActiveOnDate, mapAnnouncementRecord } from '@/lib/announcements'
+import { requireCompanyModuleAccess } from '@/lib/companyModuleAccess'
 
 export const dynamic = 'force-dynamic'
 
@@ -20,15 +21,11 @@ async function getUser(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
-    const user = await getUser(request)
-    if (!user) {
-      return NextResponse.json({ error: 'Ej auktoriserad' }, { status: 401 })
-    }
+    const access = await requireCompanyModuleAccess(request, 'announcements')
+    if (!access.ok) return access.response
 
-    const companyId = adminEffectiveCompanyId(user)
-    if (!companyId) {
-      return NextResponse.json([])
-    }
+    const companyId = access.companyId
+    const user = access.user
 
     const announcements = await prisma.companyAnnouncement.findMany({
       where: {

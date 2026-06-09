@@ -77,7 +77,11 @@ function LoginForm() {
         throw new Error('Ogiltigt svar från servern')
       }
 
-      const isAdminUser = data.user.role === 'ENTREPRENEUR' || data.user.role === 'PAYROLL_COORDINATOR'
+      const isSuperAdmin = data.user.role === 'SUPERADMIN'
+      const isAdminUser =
+        isSuperAdmin ||
+        data.user.role === 'ENTREPRENEUR' ||
+        data.user.role === 'PAYROLL_COORDINATOR'
 
       if (userType === 'admin' && !isAdminUser) {
         throw new Error('Detta konto är Personal. Logga in via Personal-rutan istället.')
@@ -107,8 +111,7 @@ function LoginForm() {
         throw new Error('Kunde inte spara inloggningsdata. Kontrollera att cookies är aktiverade.')
       }
 
-      // Alla roller (admin + personal) går till överblicken
-      const redirectPath = '/dashboard'
+      const redirectPath = isSuperAdmin ? '/superadmin' : '/dashboard'
 
       console.log('Omdirigerar till:', redirectPath)
       window.location.href = redirectPath

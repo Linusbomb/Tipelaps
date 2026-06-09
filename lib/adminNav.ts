@@ -1,4 +1,5 @@
 export type AdminNavItem = {
+  id: string
   href: string
   label: string
   matchPrefixes?: string[]
@@ -29,12 +30,19 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
     label: 'Arbete',
     items: [
       {
+        id: 'work-time-reports',
         href: '/admin',
         label: 'Tidrapportering',
         matchPrefixes: ['/admin', '/admin/time-reports'],
       },
-      { href: '/create-project', label: 'Projekt', matchPrefixes: ['/create-project'] },
       {
+        id: 'work-projects',
+        href: '/create-project',
+        label: 'Projekt',
+        matchPrefixes: ['/create-project'],
+      },
+      {
+        id: 'work-vehicles',
         href: '/admin/vehicles',
         label: 'Fordon',
         matchPrefixes: ['/admin/vehicles'],
@@ -46,11 +54,13 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
     label: 'Personal',
     items: [
       {
+        id: 'staff-employees',
         href: '/admin/my-staff',
         label: 'Personal',
         matchPrefixes: ['/admin/my-staff', '/admin/employee'],
       },
       {
+        id: 'staff-payroll',
         href: '/admin/payroll-hours',
         label: 'Lön & tid',
         matchPrefixes: ['/admin/payroll-hours'],

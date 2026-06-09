@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { verifyToken } from '@/lib/auth'
 import { adminEffectiveCompanyId } from '@/lib/apiAdmin'
+import { requireAdminCompanyModule } from '@/lib/companyModuleAccess'
 
 export const dynamic = 'force-dynamic'
 
@@ -18,24 +19,12 @@ async function getUserId(request: NextRequest): Promise<string | null> {
 
 export async function GET(request: NextRequest) {
   try {
-    const userId = await getUserId(request)
-    if (!userId) {
-      return NextResponse.json({ error: 'Ej auktoriserad' }, { status: 401 })
-    }
+    const access = await requireAdminCompanyModule(request, 'projects')
+    if (!access.ok) return access.response
 
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      include: { company: true, ownedCompany: true },
-    })
-
-    if (!user) {
-      return NextResponse.json({ error: 'Användaren hittades inte' }, { status: 400 })
-    }
-
-    const companyIdScope = adminEffectiveCompanyId(user)
-    if (!companyIdScope) {
-      return NextResponse.json({ error: 'Användaren tillhör inget företag' }, { status: 400 })
-    }
+    const userId = access.user.id
+    const user = access.user
+    const companyIdScope = access.companyId
 
     // Hämta alla projekt för företaget
     const projects = await prisma.project.findMany({
@@ -89,10 +78,9 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const userId = await getUserId(request)
-    if (!userId) {
-      return NextResponse.json({ error: 'Ej auktoriserad' }, { status: 401 })
-    }
+    const access = await requireAdminCompanyModule(request, 'projects')
+    if (!access.ok) return access.response
+    const userId = access.user.id
 
     const body = await request.json()
     const { name, address, startDate, customerId, employeeIds, employeeAssignments, latitude, longitude, description } = body

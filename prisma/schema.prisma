@@ -42,6 +42,13 @@ model User {
 model Company {
   id        String   @id @default(cuid())
   name      String
+  organizationNumber String?
+  address   String?
+  postalCode String?
+  city      String?
+  contactEmail String?
+  phone     String?
+  information String?
   ownerId   String   @unique
   owner     User     @relation("CompanyOwner", fields: [ownerId], references: [id])
   employees User[]   @relation("CompanyEmployees")
@@ -50,9 +57,26 @@ model Company {
   vehicles  CompanyVehicle[]
   vacationWeeks VacationWeek[]
   announcements CompanyAnnouncement[]
+  features     CompanyFeature[]
   logoPath  String?  // Sökväg till företagets logga
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model CompanyFeature {
+  id        String   @id @default(cuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  moduleId  String
+  enabled   Boolean  @default(true)
+  enabledAt DateTime @default(now())
+  enabledBy String?
+  config    Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, moduleId])
+  @@index([companyId, enabled])
 }
 
 model CompanyAnnouncement {

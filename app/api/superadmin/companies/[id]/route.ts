@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSuperAdmin } from '@/lib/auth'
 import { logAudit } from '@/lib/audit'
+import { bodyHasCompanyProfileFields, parseCompanyProfile } from '@/lib/companyProfile'
 
 export const dynamic = 'force-dynamic'
 
@@ -52,9 +53,14 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
   }
 
   const name = typeof body?.name === 'string' ? body.name.trim() : ''
-  if (!name) {
-    return NextResponse.json({ error: 'Företagsnamn krävs' }, { status: 400 })
+  const profile = parseCompanyProfile(body, { partial: true })
+  const hasProfileUpdate = bodyHasCompanyProfileFields(body)
+
+  if (!name && !hasProfileUpdate) {
+    return NextResponse.json({ error: 'Ingen data att uppdatera' }, { status: 400 })
   }
+
+  const updateName = name || existing.name
 
   const existing = await prisma.company.findUnique({ where: { id: params.id } })
   if (!existing) {
@@ -63,17 +69,34 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
 
   const updated = await prisma.company.update({
     where: { id: params.id },
-    data: { name },
-    select: { id: true, name: true, updatedAt: true },
+    data: {
+      name: updateName,
+      ...profile,
+    },
+    select: {
+      id: true,
+      name: true,
+      updatedAt: true,
+      organizationNumber: true,
+      address: true,
+      postalCode: true,
+      city: true,
+      contactEmail: true,
+      phone: true,
+      information: true,
+    },
   })
 
   await logAudit({
-    action: 'COMPANY_RENAME',
+    action: name && name !== existing.name ? 'COMPANY_RENAME' : 'COMPANY_PROFILE_UPDATE',
     actor: { id: superAdmin.id, email: superAdmin.email, role: superAdmin.role },
     targetType: 'Company',
     targetId: updated.id,
     companyId: updated.id,
-    details: { from: existing.name, to: updated.name },
+    details: {
+      ...(name && name !== existing.name ? { from: existing.name, to: updated.name } : {}),
+      profile,
+    },
     request,
   })
 

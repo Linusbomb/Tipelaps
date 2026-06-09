@@ -1,18 +1,9 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import Link from 'next/link'
 
-const BG = '#E8E8D8'
 const PRIMARY = '#2D5016'
 const PAGE_SIZE = 50
-
-type SessionUser = {
-  id: string
-  name: string
-  email: string
-  role: string
-}
 
 type AuditRow = {
   id: string
@@ -38,9 +29,7 @@ type ListResponse = {
 }
 
 export default function SuperAdminAuditPage() {
-  const [user, setUser] = useState<SessionUser | null>(null)
   const [token, setToken] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   const [filters, setFilters] = useState({
@@ -58,26 +47,7 @@ export default function SuperAdminAuditPage() {
   const [exportingCsv, setExportingCsv] = useState(false)
 
   useEffect(() => {
-    const t = localStorage.getItem('token')
-    const u = localStorage.getItem('user')
-    if (!t || !u) {
-      window.location.href = '/login?type=admin'
-      return
-    }
-    try {
-      const parsed: SessionUser = JSON.parse(u)
-      if (parsed.role !== 'SUPERADMIN') {
-        window.location.href = '/admin'
-        return
-      }
-      setUser(parsed)
-      setToken(t)
-    } catch {
-      window.location.href = '/login?type=admin'
-      return
-    } finally {
-      setLoading(false)
-    }
+    setToken(localStorage.getItem('token'))
   }, [])
 
   const load = useCallback(
@@ -173,35 +143,18 @@ export default function SuperAdminAuditPage() {
     return Math.max(1, Math.ceil(data.total / PAGE_SIZE))
   }, [data])
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: BG }}>
-        <p style={{ color: PRIMARY }}>Laddar…</p>
-      </div>
-    )
-  }
-
   return (
-    <div className="min-h-screen px-4 py-10 sm:px-6 lg:px-8" style={{ backgroundColor: BG }}>
-      <div className="mx-auto max-w-6xl space-y-6">
+    <div className="space-y-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <Link href="/superadmin" className="text-sm" style={{ color: PRIMARY }}>
-              ← Tillbaka till superadmin
-            </Link>
-            <h1 className="mt-1 text-3xl font-extrabold" style={{ color: PRIMARY }}>
-              Revisionslogg
-            </h1>
-            <p className="text-sm text-gray-700">
-              {user?.email} · Alla säkerhetshändelser i systemet, senaste först.
-            </p>
-          </div>
+          <p className="text-sm text-gray-700">
+            Alla säkerhetshändelser i systemet, senaste först.
+          </p>
           <div className="flex flex-col items-end gap-2">
-            {data && (
+            {data ? (
               <p className="text-sm text-gray-700">
                 {data.total} totalt · sida {page + 1} av {totalPages}
               </p>
-            )}
+            ) : null}
             <button
               type="button"
               onClick={handleExportCsv}
@@ -401,7 +354,6 @@ export default function SuperAdminAuditPage() {
             </button>
           </div>
         )}
-      </div>
     </div>
   )
 }

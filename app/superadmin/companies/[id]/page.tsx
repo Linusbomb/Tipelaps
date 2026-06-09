@@ -3,20 +3,21 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
+import SuperAdminCompanyModulesPanel from '@/app/components/SuperAdminCompanyModulesPanel'
+import SuperAdminAddUserPanel from '@/app/components/SuperAdminAddUserPanel'
 
-const BG = '#E8E8D8'
 const PRIMARY = '#2D5016'
-
-type SessionUser = {
-  id: string
-  name: string
-  email: string
-  role: string
-}
 
 type CompanyDetail = {
   id: string
   name: string
+  organizationNumber: string | null
+  address: string | null
+  postalCode: string | null
+  city: string | null
+  contactEmail: string | null
+  phone: string | null
+  information: string | null
   createdAt: string
   updatedAt: string
   owner: { id: string; name: string; email: string; role: string }
@@ -37,15 +38,22 @@ export default function SuperAdminCompanyDetailPage() {
   const router = useRouter()
   const companyId = params?.id
 
-  const [user, setUser] = useState<SessionUser | null>(null)
   const [token, setToken] = useState<string | null>(null)
-  const [authChecked, setAuthChecked] = useState(false)
   const [company, setCompany] = useState<CompanyDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [info, setInfo] = useState<string | null>(null)
 
   const [renameValue, setRenameValue] = useState('')
+  const [profileForm, setProfileForm] = useState({
+    organizationNumber: '',
+    address: '',
+    postalCode: '',
+    city: '',
+    contactEmail: '',
+    phone: '',
+    information: '',
+  })
   const [renaming, setRenaming] = useState(false)
 
   const [newPassword, setNewPassword] = useState('')
@@ -56,26 +64,7 @@ export default function SuperAdminCompanyDetailPage() {
   const [exporting, setExporting] = useState(false)
 
   useEffect(() => {
-    const t = localStorage.getItem('token')
-    const u = localStorage.getItem('user')
-    if (!t || !u) {
-      window.location.href = '/login?type=admin'
-      return
-    }
-    try {
-      const parsed: SessionUser = JSON.parse(u)
-      if (parsed.role !== 'SUPERADMIN') {
-        window.location.href = '/admin'
-        return
-      }
-      setUser(parsed)
-      setToken(t)
-    } catch {
-      window.location.href = '/login?type=admin'
-      return
-    } finally {
-      setAuthChecked(true)
-    }
+    setToken(localStorage.getItem('token'))
   }, [])
 
   useEffect(() => {
@@ -97,6 +86,15 @@ export default function SuperAdminCompanyDetailPage() {
       const data: CompanyDetail = await res.json()
       setCompany(data)
       setRenameValue(data.name)
+      setProfileForm({
+        organizationNumber: data.organizationNumber ?? '',
+        address: data.address ?? '',
+        postalCode: data.postalCode ?? '',
+        city: data.city ?? '',
+        contactEmail: data.contactEmail ?? '',
+        phone: data.phone ?? '',
+        information: data.information ?? '',
+      })
     } catch (err: any) {
       setError(err?.message || 'Kunde inte hämta företag')
     } finally {
@@ -104,10 +102,21 @@ export default function SuperAdminCompanyDetailPage() {
     }
   }
 
-  async function handleRename(e: React.FormEvent) {
+  async function handleSaveCompany(e: React.FormEvent) {
     e.preventDefault()
     if (!token || !company) return
-    if (!renameValue.trim() || renameValue.trim() === company.name) return
+    if (
+      !renameValue.trim() &&
+      !profileForm.organizationNumber &&
+      !profileForm.address &&
+      !profileForm.postalCode &&
+      !profileForm.city &&
+      !profileForm.contactEmail &&
+      !profileForm.phone &&
+      !profileForm.information
+    ) {
+      return
+    }
     setRenaming(true)
     setError(null)
     setInfo(null)
@@ -118,14 +127,28 @@ export default function SuperAdminCompanyDetailPage() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ name: renameValue.trim() }),
+        body: JSON.stringify({
+          name: renameValue.trim(),
+          ...profileForm,
+        }),
       })
       const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data?.error || 'Kunde inte byta namn')
-      setCompany({ ...company, name: data.name, updatedAt: data.updatedAt })
-      setInfo('Namnet uppdaterades')
+      if (!res.ok) throw new Error(data?.error || 'Kunde inte spara företagsuppgifter')
+      setCompany({
+        ...company,
+        name: data.name,
+        organizationNumber: data.organizationNumber,
+        address: data.address,
+        postalCode: data.postalCode,
+        city: data.city,
+        contactEmail: data.contactEmail,
+        phone: data.phone,
+        information: data.information,
+        updatedAt: data.updatedAt,
+      })
+      setInfo('Företagsuppgifter sparades')
     } catch (err: any) {
-      setError(err?.message || 'Kunde inte byta namn')
+      setError(err?.message || 'Kunde inte spara företagsuppgifter')
     } finally {
       setRenaming(false)
     }
@@ -165,7 +188,7 @@ export default function SuperAdminCompanyDetailPage() {
   }
 
   async function handleImpersonate() {
-    if (!token || !company || !user) return
+    if (!token || !company) return
     if (
       !window.confirm(
         `Logga in som ${company.owner.email} och se kundens vy? Du kan när som helst återgå till superadmin via banner.`
@@ -184,22 +207,31 @@ export default function SuperAdminCompanyDetailPage() {
       if (!res.ok) throw new Error(data?.error || 'Kunde inte logga in som kund')
 
       const superToken = localStorage.getItem('token')
-      const superUser = localStorage.getItem('user')
+      const superUserRaw = localStorage.getItem('user')
+      let superEmail = 'superadmin'
+      if (superUserRaw) {
+        try {
+          superEmail = JSON.parse(superUserRaw).email ?? superEmail
+        } catch {
+          /* ignore */
+        }
+      }
+
       if (superToken) localStorage.setItem('superadminToken', superToken)
-      if (superUser) localStorage.setItem('superadminUser', superUser)
+      if (superUserRaw) localStorage.setItem('superadminUser', superUserRaw)
 
       localStorage.setItem('token', data.token)
       localStorage.setItem('user', JSON.stringify(data.user))
       localStorage.setItem(
         'impersonatedAs',
         JSON.stringify({
-          superEmail: user.email,
+          superEmail,
           asEmail: data.user.email,
           asName: data.user.name,
-          companyName: data.company?.name,
+          companyName: data.company?.name ?? company.name,
         })
       )
-      window.location.href = '/admin'
+      window.location.href = '/dashboard'
     } catch (err: any) {
       setError(err?.message || 'Kunde inte logga in som kund')
       setImpersonating(false)
@@ -263,27 +295,21 @@ export default function SuperAdminCompanyDetailPage() {
     }
   }
 
-  if (!authChecked || loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: BG }}>
-        <p style={{ color: PRIMARY }}>Laddar…</p>
-      </div>
-    )
+  if (loading) {
+    return <p className="text-sm text-gray-600">Laddar kund…</p>
   }
 
   if (!company) {
     return (
-      <div className="min-h-screen px-4 py-10 sm:px-6 lg:px-8" style={{ backgroundColor: BG }}>
-        <div className="mx-auto max-w-3xl space-y-4">
-          {error && (
-            <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
-              {error}
-            </div>
-          )}
-          <Link href="/superadmin" style={{ color: PRIMARY }}>
-            ← Tillbaka till listan
-          </Link>
-        </div>
+      <div className="space-y-4">
+        {error ? (
+          <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+            {error}
+          </div>
+        ) : null}
+        <Link href="/superadmin" style={{ color: PRIMARY }}>
+          ← Tillbaka till kundlistan
+        </Link>
       </div>
     )
   }
@@ -294,15 +320,14 @@ export default function SuperAdminCompanyDetailPage() {
   const endedEmployees = company.employees.filter((e) => e.employmentEndedAt != null)
 
   return (
-    <div className="min-h-screen px-4 py-10 sm:px-6 lg:px-8" style={{ backgroundColor: BG }}>
-      <div className="mx-auto max-w-5xl space-y-6">
+    <div className="space-y-6">
         <div>
           <Link href="/superadmin" className="text-sm" style={{ color: PRIMARY }}>
             ← Tillbaka till alla kunder
           </Link>
-          <h1 className="mt-2 text-3xl font-extrabold" style={{ color: PRIMARY }}>
+          <h2 className="mt-2 text-2xl font-extrabold" style={{ color: PRIMARY }}>
             {company.name}
-          </h1>
+          </h2>
           <p className="text-sm text-gray-600">
             Skapad {new Date(company.createdAt).toLocaleDateString('sv-SE')} • Ägare:{' '}
             <strong>{company.owner.name}</strong> ({company.owner.email})
@@ -328,22 +353,99 @@ export default function SuperAdminCompanyDetailPage() {
         </div>
 
         <div className="grid gap-4 lg:grid-cols-2">
-          <Card title="Byt företagsnamn">
-            <form onSubmit={handleRename} className="space-y-3">
-              <input
-                type="text"
-                value={renameValue}
-                onChange={(e) => setRenameValue(e.target.value)}
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
-              />
-              <button
-                type="submit"
-                disabled={renaming || !renameValue.trim() || renameValue.trim() === company.name}
-                className="rounded-md px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
-                style={{ backgroundColor: PRIMARY }}
-              >
-                {renaming ? 'Sparar…' : 'Spara namn'}
-              </button>
+          <Card title="Företagsuppgifter">
+            <form onSubmit={handleSaveCompany} className="grid gap-3 sm:grid-cols-2">
+              <label className="text-sm sm:col-span-2">
+                <span className="block text-gray-700">Företagsnamn *</span>
+                <input
+                  type="text"
+                  required
+                  value={renameValue}
+                  onChange={(e) => setRenameValue(e.target.value)}
+                  className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                />
+              </label>
+              <label className="text-sm">
+                <span className="block text-gray-700">Organisationsnummer</span>
+                <input
+                  type="text"
+                  value={profileForm.organizationNumber}
+                  onChange={(e) =>
+                    setProfileForm({ ...profileForm, organizationNumber: e.target.value })
+                  }
+                  className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                />
+              </label>
+              <label className="text-sm">
+                <span className="block text-gray-700">Företags e-post</span>
+                <input
+                  type="email"
+                  value={profileForm.contactEmail}
+                  onChange={(e) =>
+                    setProfileForm({ ...profileForm, contactEmail: e.target.value })
+                  }
+                  className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                />
+              </label>
+              <label className="text-sm">
+                <span className="block text-gray-700">Telefon</span>
+                <input
+                  type="tel"
+                  value={profileForm.phone}
+                  onChange={(e) => setProfileForm({ ...profileForm, phone: e.target.value })}
+                  className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                />
+              </label>
+              <label className="text-sm sm:col-span-2">
+                <span className="block text-gray-700">Gatuadress</span>
+                <input
+                  type="text"
+                  value={profileForm.address}
+                  onChange={(e) => setProfileForm({ ...profileForm, address: e.target.value })}
+                  className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                />
+              </label>
+              <label className="text-sm">
+                <span className="block text-gray-700">Postnummer</span>
+                <input
+                  type="text"
+                  value={profileForm.postalCode}
+                  onChange={(e) =>
+                    setProfileForm({ ...profileForm, postalCode: e.target.value })
+                  }
+                  className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                />
+              </label>
+              <label className="text-sm">
+                <span className="block text-gray-700">Ort</span>
+                <input
+                  type="text"
+                  value={profileForm.city}
+                  onChange={(e) => setProfileForm({ ...profileForm, city: e.target.value })}
+                  className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                />
+              </label>
+              <label className="text-sm sm:col-span-2">
+                <span className="block text-gray-700">Övrig information</span>
+                <textarea
+                  rows={3}
+                  value={profileForm.information}
+                  onChange={(e) =>
+                    setProfileForm({ ...profileForm, information: e.target.value })
+                  }
+                  className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                />
+              </label>
+              <div className="sm:col-span-2">
+                <button
+                  type="submit"
+                  disabled={renaming}
+                  className="rounded-md px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                  style={{ backgroundColor: PRIMARY }}
+                >
+                  {renaming ? 'Sparar…' : 'Spara företagsuppgifter'}
+                </button>
+              </div>
             </form>
           </Card>
 
@@ -368,6 +470,12 @@ export default function SuperAdminCompanyDetailPage() {
                 {resetting ? 'Sparar…' : 'Sätt nytt lösenord'}
               </button>
             </form>
+          </Card>
+
+          <Card title="Moduler">
+            {token && companyId ? (
+              <SuperAdminCompanyModulesPanel companyId={companyId} token={token} />
+            ) : null}
           </Card>
 
           <Card title="Logga in som kundens admin">
@@ -415,9 +523,18 @@ export default function SuperAdminCompanyDetailPage() {
           </Card>
         </div>
 
-        <Card title={`Anställda (${activeEmployees.length} aktiva)`}>
+        <Card title={`Anställda och användare (${activeEmployees.length} aktiva)`}>
+          {token && companyId ? (
+            <div className="mb-4">
+              <SuperAdminAddUserPanel
+                companyId={companyId}
+                token={token}
+                onCreated={() => void loadCompany(token, companyId)}
+              />
+            </div>
+          ) : null}
           {activeEmployees.length === 0 ? (
-            <p className="text-sm text-gray-600">Inga anställda ännu.</p>
+            <p className="text-sm text-gray-600">Inga anställda ännu utöver admin.</p>
           ) : (
             <table className="min-w-full text-sm">
               <thead>
@@ -457,7 +574,6 @@ export default function SuperAdminCompanyDetailPage() {
             </details>
           )}
         </Card>
-      </div>
     </div>
   )
 }
