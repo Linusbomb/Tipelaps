@@ -239,7 +239,7 @@ function NavSingleLink({
   matchPrefixes?: string[]
   onNavigate?: () => void
 }) {
-  const active = isAdminNavItemActive(pathname, { href, label, matchPrefixes })
+  const active = isAdminNavItemActive(pathname, { href, matchPrefixes })
   return (
     <Link
       href={href}

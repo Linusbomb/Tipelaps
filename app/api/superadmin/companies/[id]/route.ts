@@ -60,12 +60,12 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     return NextResponse.json({ error: 'Ingen data att uppdatera' }, { status: 400 })
   }
 
-  const updateName = name || existing.name
-
   const existing = await prisma.company.findUnique({ where: { id: params.id } })
   if (!existing) {
     return NextResponse.json({ error: 'Företag hittades inte' }, { status: 404 })
   }
+
+  const updateName = name || existing.name
 
   const updated = await prisma.company.update({
     where: { id: params.id },

@@ -104,7 +104,10 @@ function pathMatches(pathname: string, href: string, extraPrefixes?: string[]): 
   })
 }
 
-export function isAdminNavItemActive(pathname: string, item: AdminNavItem): boolean {
+export function isAdminNavItemActive(
+  pathname: string,
+  item: Pick<AdminNavItem, 'href' | 'matchPrefixes'>
+): boolean {
   return pathMatches(pathname, item.href, item.matchPrefixes)
 }
 
