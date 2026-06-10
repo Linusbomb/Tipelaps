@@ -1,5 +1,7 @@
 import { PrismaClient } from '@prisma/client'
 
+require('../scripts/ensure-neon-env.cjs')
+
 const globalForPrisma = global as unknown as { prisma: PrismaClient }
 
 export const prisma =
