@@ -15,7 +15,7 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
   const company = await prisma.company.findUnique({
     where: { id: params.id },
     include: {
-      owner: { select: { id: true, name: true, email: true, role: true } },
+      owner: { select: { id: true, name: true, email: true, role: true, createdAt: true } },
       employees: {
         select: {
           id: true,

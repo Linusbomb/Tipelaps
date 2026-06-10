@@ -6,6 +6,7 @@ import {
   STANDARD_WORK_DAY_HOURS,
   buildMonthCalendarWeeks,
   formatCoverageDateSv,
+  type WeekRowKind,
 } from '@/lib/monthDayCoverage'
 import {
   dayHasCoverageRegistration,
@@ -46,8 +47,8 @@ function isUnderEightHoursRegistered(day: DayCoverage): boolean {
 function coverageDayAppearance(day: DayCoverage, variant: MiniCalendarVariant): DayCellAppearance {
   const base =
     variant === 'admin'
-      ? 'aspect-square flex items-center justify-center rounded-md border text-xs font-medium transition-colors'
-      : 'aspect-square flex items-center justify-center rounded-md border text-sm font-medium transition-colors'
+      ? 'min-h-[2.5rem] flex items-center justify-center rounded-md border text-sm font-medium transition-colors'
+      : 'min-h-[2.75rem] flex items-center justify-center rounded-md border text-base font-medium transition-colors'
 
   const redFrame = redDayFrame(day)
 
@@ -96,6 +97,60 @@ function coverageDayAppearance(day: DayCoverage, variant: MiniCalendarVariant): 
   return {
     className: `${base} bg-white text-gray-800 border-gray-200 hover:bg-gray-50 hover:border-gray-400 ${redFrame}`,
   }
+}
+
+function weekColumnClassName(kind: WeekRowKind, isComplete: boolean): string {
+  const base =
+    'flex flex-col items-center justify-center rounded-md border px-1 py-1.5 text-center min-h-[2.75rem]'
+
+  if (isComplete) {
+    switch (kind) {
+      case 'vacation':
+        return `${base} border-violet-200 bg-violet-50`
+      case 'redDay':
+        return `${base} border-red-200 bg-red-50`
+      default:
+        return `${base} border-green-200 bg-green-50`
+    }
+  }
+
+  if (kind === 'ongoing') {
+    return `${base} border-blue-200 bg-blue-50`
+  }
+
+  if (kind === 'incomplete') {
+    return `${base} border-amber-200 bg-amber-50`
+  }
+
+  return `${base} border-gray-200 bg-gray-50`
+}
+
+function weekHoursClassName(kind: WeekRowKind, isComplete: boolean): string {
+  const base = 'text-[11px] tabular-nums leading-tight mt-0.5 font-medium'
+  if (isComplete) {
+    if (kind === 'vacation') return `${base} text-violet-900`
+    if (kind === 'redDay') return `${base} text-red-900`
+    return `${base} text-green-800`
+  }
+  if (kind === 'ongoing') return `${base} text-blue-900`
+  if (kind === 'incomplete') return `${base} text-amber-900`
+  return `${base} text-gray-600`
+}
+
+function formatWeekHoursLabel(
+  actualHours: number,
+  expectedHours: number,
+  isComplete: boolean
+): string {
+  const actual = Math.round(actualHours)
+  const expected = Math.round(expectedHours)
+  if (isComplete && expected > 0) {
+    return `${actual} h ✓`
+  }
+  if (expected > 0) {
+    return `${actual} / ${expected} h`
+  }
+  return '—'
 }
 
 function dayCanRegister(day: DayCoverage, variant: MiniCalendarVariant): boolean {
@@ -166,16 +221,16 @@ export default function MonthCoverageMiniCalendar({
   }
 
   return (
-    <div className={`max-w-md ${className}`}>
+    <div className={`max-w-2xl w-full ${className}`}>
       <div
-        className="grid gap-1 mb-1"
-        style={{ gridTemplateColumns: '2.75rem repeat(7, minmax(0, 1fr))' }}
+        className="grid gap-1.5 mb-1.5"
+        style={{ gridTemplateColumns: '3.5rem repeat(7, minmax(0, 1fr))' }}
       >
-        <div className="text-[10px] font-medium text-gray-500 text-center py-0.5">V</div>
+        <div className="text-xs font-medium text-gray-500 text-center py-1">V</div>
         {WEEKDAY_HEADERS.map((label) => (
           <div
             key={label}
-            className={`text-center text-[10px] font-medium py-0.5 ${
+            className={`text-center text-xs font-medium py-1 ${
               label === 'Lör' || label === 'Sön' ? 'text-gray-400' : 'text-gray-500'
             }`}
           >
@@ -184,19 +239,28 @@ export default function MonthCoverageMiniCalendar({
         ))}
       </div>
 
-      <div className="flex flex-col gap-1">
+      <div className="flex flex-col gap-1.5">
         {weekRows.map((row) => (
           <div
             key={`week-${row.isoWeek}-${row.days[0]?.date ?? 'pad'}`}
-            className="grid gap-1 items-stretch"
-            style={{ gridTemplateColumns: '2.75rem repeat(7, minmax(0, 1fr))' }}
+            className="grid gap-1.5 items-stretch"
+            style={{ gridTemplateColumns: '3.5rem repeat(7, minmax(0, 1fr))' }}
           >
-            <div className="flex flex-col items-center justify-center rounded-md border border-gray-200 bg-gray-50 px-0.5 py-1 text-center min-h-[2.25rem]">
-              <span className="text-[10px] font-semibold text-gray-700 leading-tight">
+            <div
+              className={weekColumnClassName(row.weekDisplay.kind, row.weekDisplay.isComplete)}
+              title={row.weekDisplay.title}
+            >
+              <span className="text-xs font-semibold text-gray-700 leading-tight">
                 v.{row.isoWeek}
               </span>
-              <span className="text-[9px] text-gray-600 tabular-nums leading-tight mt-0.5">
-                {row.workHoursInMonth > 0 ? `${row.workHoursInMonth.toFixed(1)} h` : '—'}
+              <span
+                className={weekHoursClassName(row.weekDisplay.kind, row.weekDisplay.isComplete)}
+              >
+                {formatWeekHoursLabel(
+                  row.weekDisplay.actualHours,
+                  row.weekDisplay.expectedHours,
+                  row.weekDisplay.isComplete
+                )}
               </span>
             </div>
             {row.days.map((day, index) =>
@@ -205,7 +269,7 @@ export default function MonthCoverageMiniCalendar({
                   {renderDay(day)}
                 </div>
               ) : (
-                <div key={`empty-${row.isoWeek}-${index}`} className="aspect-square" />
+                <div key={`empty-${row.isoWeek}-${index}`} className="min-h-[2.75rem]" />
               )
             )}
           </div>

@@ -20,7 +20,7 @@ type CompanyDetail = {
   information: string | null
   createdAt: string
   updatedAt: string
-  owner: { id: string; name: string; email: string; role: string }
+  owner: { id: string; name: string; email: string; role: string; createdAt: string }
   employees: {
     id: string
     name: string
@@ -59,7 +59,7 @@ export default function SuperAdminCompanyDetailPage() {
   const [newPassword, setNewPassword] = useState('')
   const [resetting, setResetting] = useState(false)
 
-  const [impersonating, setImpersonating] = useState(false)
+  const [impersonatingUserId, setImpersonatingUserId] = useState<string | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [exporting, setExporting] = useState(false)
 
@@ -187,24 +187,33 @@ export default function SuperAdminCompanyDetailPage() {
     }
   }
 
-  async function handleImpersonate() {
+  async function handleImpersonate(target: {
+    id: string
+    name: string
+    email: string
+    role: string
+  }) {
     if (!token || !company) return
     if (
       !window.confirm(
-        `Logga in som ${company.owner.email} och se kundens vy? Du kan när som helst återgå till superadmin via banner.`
+        `Logga in som ${target.name} (${target.email}) och se användarens vy? Du kan när som helst återgå till superadmin via banner.`
       )
     ) {
       return
     }
-    setImpersonating(true)
+    setImpersonatingUserId(target.id)
     setError(null)
     try {
       const res = await fetch(`/api/superadmin/companies/${company.id}/impersonate`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ userId: target.id }),
       })
       const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data?.error || 'Kunde inte logga in som kund')
+      if (!res.ok) throw new Error(data?.error || 'Kunde inte logga in som användare')
 
       const superToken = localStorage.getItem('token')
       const superUserRaw = localStorage.getItem('user')
@@ -233,8 +242,8 @@ export default function SuperAdminCompanyDetailPage() {
       )
       window.location.href = '/dashboard'
     } catch (err: any) {
-      setError(err?.message || 'Kunde inte logga in som kund')
-      setImpersonating(false)
+      setError(err?.message || 'Kunde inte logga in som användare')
+      setImpersonatingUserId(null)
     }
   }
 
@@ -317,6 +326,12 @@ export default function SuperAdminCompanyDetailPage() {
   const activeEmployees = company.employees.filter(
     (e) => e.id !== company.owner.id && e.employmentEndedAt == null
   )
+  const allActiveUsers = [
+    company.owner,
+    ...company.employees.filter(
+      (e) => e.id !== company.owner.id && e.employmentEndedAt == null
+    ),
+  ]
   const endedEmployees = company.employees.filter((e) => e.employmentEndedAt != null)
 
   return (
@@ -478,18 +493,21 @@ export default function SuperAdminCompanyDetailPage() {
             ) : null}
           </Card>
 
-          <Card title="Logga in som kundens admin">
+          <Card title="Logga in som användare">
             <p className="mb-3 text-xs text-gray-600">
-              Du hamnar i kundens vy med en gul banner högst upp för att återgå. Tokenen är giltig i
-              1 timme och händelsen skrivs i revisionsloggen.
+              Testa kundens vy som admin eller personal. Du hamnar i appen med en gul banner högst
+              upp för att återgå. Tokenen är giltig i 1 timme och händelsen skrivs i
+              revisionsloggen.
             </p>
             <button
               type="button"
-              onClick={handleImpersonate}
-              disabled={impersonating}
+              onClick={() => handleImpersonate(company.owner)}
+              disabled={impersonatingUserId !== null}
               className="rounded-md border border-yellow-500 bg-yellow-100 px-4 py-2 text-sm font-semibold text-yellow-900 hover:bg-yellow-200 disabled:opacity-60"
             >
-              {impersonating ? 'Loggar in…' : 'Logga in som ' + company.owner.email}
+              {impersonatingUserId === company.owner.id
+                ? 'Loggar in…'
+                : `Logga in som admin (${company.owner.email})`}
             </button>
           </Card>
 
@@ -523,7 +541,7 @@ export default function SuperAdminCompanyDetailPage() {
           </Card>
         </div>
 
-        <Card title={`Anställda och användare (${activeEmployees.length} aktiva)`}>
+        <Card title={`Anställda och användare (${allActiveUsers.length} aktiva)`}>
           {token && companyId ? (
             <div className="mb-4">
               <SuperAdminAddUserPanel
@@ -533,8 +551,8 @@ export default function SuperAdminCompanyDetailPage() {
               />
             </div>
           ) : null}
-          {activeEmployees.length === 0 ? (
-            <p className="text-sm text-gray-600">Inga anställda ännu utöver admin.</p>
+          {allActiveUsers.length === 0 ? (
+            <p className="text-sm text-gray-600">Inga aktiva användare.</p>
           ) : (
             <table className="min-w-full text-sm">
               <thead>
@@ -543,16 +561,27 @@ export default function SuperAdminCompanyDetailPage() {
                   <th className="py-2 pr-4">E-post</th>
                   <th className="py-2 pr-4">Roll</th>
                   <th className="py-2 pr-4">Skapad</th>
+                  <th className="py-2"></th>
                 </tr>
               </thead>
               <tbody>
-                {activeEmployees.map((e) => (
+                {allActiveUsers.map((e) => (
                   <tr key={e.id} className="border-t border-gray-200">
                     <td className="py-2 pr-4">{e.name}</td>
                     <td className="py-2 pr-4">{e.email}</td>
                     <td className="py-2 pr-4">{roleLabel(e.role)}</td>
                     <td className="py-2 pr-4 text-gray-600">
                       {new Date(e.createdAt).toLocaleDateString('sv-SE')}
+                    </td>
+                    <td className="py-2 text-right">
+                      <button
+                        type="button"
+                        onClick={() => handleImpersonate(e)}
+                        disabled={impersonatingUserId !== null}
+                        className="rounded-md border border-yellow-400 bg-yellow-50 px-2.5 py-1 text-xs font-medium text-yellow-900 hover:bg-yellow-100 disabled:opacity-60"
+                      >
+                        {impersonatingUserId === e.id ? 'Loggar in…' : 'Logga in som'}
+                      </button>
                     </td>
                   </tr>
                 ))}

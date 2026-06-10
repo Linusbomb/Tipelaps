@@ -16,6 +16,7 @@ import CoverageRegisterDayModal from '@/app/components/CoverageRegisterDayModal'
 import MonthCoverageMiniCalendar, {
   CoverageLegendSwatch,
 } from '@/app/components/MonthCoverageMiniCalendar'
+import MonthCoverageHoursSummary from '@/app/components/MonthCoverageHoursSummary'
 
 type EmployeeCoverage = {
   userId: string
@@ -198,6 +199,7 @@ export default function AdminMonthCoveragePanel({
           <span className="inline-flex items-center gap-1">
             <CoverageLegendSwatch colorClass="bg-gray-50 border-gray-200" className="w-2.5 h-2.5" /> Helg
           </span>
+          <span className="text-gray-500">· v. = vecka, 32 h ✓ = klar</span>
         </div>
       </div>
 
@@ -261,18 +263,21 @@ export default function AdminMonthCoveragePanel({
 
                 {isExpanded ? (
                   <div className="px-4 pb-4 pt-0 pl-9 flex flex-col sm:flex-row gap-4 items-start">
-                    <MonthCoverageMiniCalendar
-                      month={month}
-                      days={employee.days}
-                      variant="admin"
-                      forUserId={employee.userId}
-                      onRegisteredDayClick={(dateKey) =>
-                        setDayDetail({ dateKey, userId: employee.userId })
-                      }
-                      onEmptyDayClick={(dateKey) =>
-                        setRegisterDay({ dateKey, userId: employee.userId })
-                      }
-                    />
+                    <div className="w-full max-w-2xl shrink-0">
+                      <MonthCoverageHoursSummary days={employee.days} className="mb-4" />
+                      <MonthCoverageMiniCalendar
+                        month={month}
+                        days={employee.days}
+                        variant="admin"
+                        forUserId={employee.userId}
+                        onRegisteredDayClick={(dateKey) =>
+                          setDayDetail({ dateKey, userId: employee.userId })
+                        }
+                        onEmptyDayClick={(dateKey) =>
+                          setRegisterDay({ dateKey, userId: employee.userId })
+                        }
+                      />
+                    </div>
                     <div className="text-sm flex-1 min-w-0">
                       {employee.warnings.length > 0 ? (
                         <>

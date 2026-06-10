@@ -285,14 +285,116 @@ export function getIsoWeekNumber(dateKey: string): number {
 
 export type MonthCalendarWeekRow = {
   isoWeek: number
-  /** Summan arbetade timmar (tidrapport) för dagar i månaden den veckoraden. */
+  /** @deprecated Använd weekDisplay.actualHours */
   workHoursInMonth: number
+  weekDisplay: WeekCoverageDisplay
   days: (DayCoverage | null)[]
+}
+
+export type WeekRowKind = 'normal' | 'ongoing' | 'redDay' | 'vacation' | 'incomplete'
+
+export type WeekCoverageDisplay = {
+  actualHours: number
+  expectedHours: number
+  isComplete: boolean
+  kind: WeekRowKind
+  title: string
+}
+
+function roundCoverageHours(hours: number): number {
+  return Math.round(hours)
+}
+
+function summarizeWeekRow(
+  monthDaysInRow: DayCoverage[],
+  referenceDate: Date,
+  isoWeek: number
+): WeekCoverageDisplay {
+  const todayKey = formatCalendarDateKey(referenceDate)
+  const currentIsoWeek = getIsoWeekNumber(todayKey)
+  const isCurrentWeek = isoWeek === currentIsoWeek
+
+  let expectedHours = 0
+  let actualHours = 0
+  let hasRedDay = false
+  const workdays: DayCoverage[] = []
+
+  for (const day of monthDaysInRow) {
+    if (day.status === 'weekend') continue
+    if (day.isRedDay) {
+      hasRedDay = true
+      continue
+    }
+    workdays.push(day)
+    expectedHours += STANDARD_WORK_DAY_HOURS
+    actualHours += day.totalHours
+  }
+
+  const roundedActual = roundCoverageHours(actualHours)
+  const roundedExpected = roundCoverageHours(expectedHours)
+  const isComplete =
+    roundedExpected > 0 && roundedActual >= roundedExpected
+
+  const vacationWorkdays = workdays.filter(
+    (day) => day.hasAbsence && day.workHours === 0 && day.absenceHours > 0
+  )
+  const isVacationWeek =
+    workdays.length > 0 &&
+    vacationWorkdays.length === workdays.length &&
+    isComplete
+
+  let kind: WeekRowKind
+  let title: string
+
+  if (isCurrentWeek && !isComplete) {
+    kind = 'ongoing'
+    title = `Pågående vecka — ${roundedActual} / ${roundedExpected} h`
+  } else if (isVacationWeek) {
+    kind = 'vacation'
+    title = `Vecka med semester — ${roundedActual} / ${roundedExpected} h`
+  } else if (hasRedDay && isComplete) {
+    kind = 'redDay'
+    title = `Vecka med röd dag — ${roundedActual} / ${roundedExpected} h`
+  } else if (isComplete) {
+    kind = 'normal'
+    title = `Normal vecka — ${roundedActual} / ${roundedExpected} h`
+  } else {
+    kind = 'incomplete'
+    title = `Ofullständig vecka — ${roundedActual} / ${roundedExpected} h`
+  }
+
+  return {
+    actualHours,
+    expectedHours,
+    isComplete,
+    kind,
+    title,
+  }
+}
+
+export function summarizeMonthHours(days: DayCoverage[]): {
+  expectedHours: number
+  registeredHours: number
+} {
+  let expectedHours = 0
+  let registeredHours = 0
+
+  for (const day of days) {
+    if (day.status === 'weekend' || day.isRedDay) continue
+    expectedHours += STANDARD_WORK_DAY_HOURS
+    registeredHours += day.totalHours
+  }
+
+  return {
+    expectedHours: roundCoverageHours(expectedHours),
+    registeredHours: roundCoverageHours(registeredHours),
+  }
 }
 
 export function buildMonthCalendarWeeks(
   monthKey: string,
-  days: DayCoverage[]
+  days: DayCoverage[],
+  referenceDate: Date = new Date()
 ): MonthCalendarWeekRow[] {
   const { year, monthIndex } = parseMonthKey(monthKey)
   const firstWeekday = new Date(year, monthIndex, 1).getDay()
@@ -318,7 +420,9 @@ export function buildMonthCalendarWeeks(
           ? rows[rows.length - 1]!.isoWeek
           : getIsoWeekNumber(calendarDateKeyFromParts(year, monthIndex, 1))
 
-    rows.push({ isoWeek, workHoursInMonth, days: weekCells })
+    const weekDisplay = summarizeWeekRow(monthDaysInRow, referenceDate, isoWeek)
+
+    rows.push({ isoWeek, workHoursInMonth, weekDisplay, days: weekCells })
   }
 
   return rows

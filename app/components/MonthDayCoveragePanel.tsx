@@ -14,6 +14,7 @@ import CoverageRegisterDayModal from '@/app/components/CoverageRegisterDayModal'
 import MonthCoverageMiniCalendar, {
   CoverageLegendSwatch,
 } from '@/app/components/MonthCoverageMiniCalendar'
+import MonthCoverageHoursSummary from '@/app/components/MonthCoverageHoursSummary'
 
 type MonthDayCoveragePanelProps = {
   month: string
@@ -78,6 +79,7 @@ export default function MonthDayCoveragePanel({
         </div>
 
         <div className="p-4">
+          <MonthCoverageHoursSummary days={days} className="mb-4 max-w-2xl" />
           <MonthCoverageMiniCalendar
             month={month}
             days={days}
@@ -110,7 +112,10 @@ export default function MonthDayCoveragePanel({
               <CoverageLegendSwatch colorClass="bg-gray-50 border-gray-200" />
               Helg
             </span>
-            <span className="text-gray-500">v. = veckonr · h = arbetade timmar i månaden</span>
+            <span className="text-gray-500">
+              Veckokolumn: <strong>32 h ✓</strong> = klar vecka · <strong>16 / 40 h</strong> = pågående
+              eller ofullständig (röd dag sänker förväntat antal timmar)
+            </span>
           </p>
         </div>
 
