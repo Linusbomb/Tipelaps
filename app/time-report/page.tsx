@@ -1042,23 +1042,25 @@ function TimeReportPageContent() {
                 </option>
               ))}
             </select>
-            <div className="mt-3 flex flex-col md:flex-row gap-2">
-              <input
-                type="text"
-                value={newCustomerName}
-                onChange={(e) => setNewCustomerName(e.target.value)}
-                placeholder="Skapa ny kund"
-                className="w-full px-4 py-2 border border-gray-300 rounded-md"
-              />
-              <button
-                type="button"
-                onClick={createCustomer}
-                disabled={creatingCustomer}
-                className="w-full md:w-auto px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50"
-              >
-                {creatingCustomer ? 'Skapar...' : 'Skapa ny kund'}
-              </button>
-            </div>
+            {isAdmin ? (
+              <div className="mt-3 flex flex-col md:flex-row gap-2">
+                <input
+                  type="text"
+                  value={newCustomerName}
+                  onChange={(e) => setNewCustomerName(e.target.value)}
+                  placeholder="Skapa ny kund"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-md"
+                />
+                <button
+                  type="button"
+                  onClick={createCustomer}
+                  disabled={creatingCustomer}
+                  className="w-full md:w-auto px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50"
+                >
+                  {creatingCustomer ? 'Skapar...' : 'Skapa ny kund'}
+                </button>
+              </div>
+            ) : null}
           </div>
 
           <div className="mb-6">

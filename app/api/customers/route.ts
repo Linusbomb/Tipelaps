@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { verifyToken } from '@/lib/auth'
 import { adminEffectiveCompanyId } from '@/lib/apiAdmin'
-import { requireAdminCompanyModule } from '@/lib/companyModuleAccess'
+import { requireAdminCompanyModule, requireCompanyModuleAccess } from '@/lib/companyModuleAccess'
 
 export const dynamic = 'force-dynamic'
 
@@ -26,14 +26,9 @@ async function getUser(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
-    const access = await requireAdminCompanyModule(request, 'customer_portal')
+    const access = await requireCompanyModuleAccess(request, 'time_reports')
     if (!access.ok) return access.response
-    const user = access.user
-
-    const companyId = adminEffectiveCompanyId(user)
-    if (!companyId) {
-      return NextResponse.json([])
-    }
+    const companyId = access.companyId
 
     const { searchParams } = new URL(request.url)
     const activeOnly = searchParams.get('activeOnly') === 'true'
