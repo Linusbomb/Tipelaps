@@ -16,6 +16,12 @@ type CompanyRow = {
   }
 }
 
+type DbDiagnostics = {
+  databaseHost: string
+  companyCount: number
+  vercelEnv: string | null
+}
+
 const PRIMARY = '#2D5016'
 
 export default function SuperAdminPage() {
@@ -42,6 +48,7 @@ export default function SuperAdminPage() {
   })
   const [createConsent, setCreateConsent] = useState(false)
   const [createSuccess, setCreateSuccess] = useState<string | null>(null)
+  const [dbDiagnostics, setDbDiagnostics] = useState<DbDiagnostics | null>(null)
 
   useEffect(() => {
     setToken(localStorage.getItem('token'))
@@ -50,7 +57,21 @@ export default function SuperAdminPage() {
   useEffect(() => {
     if (!token) return
     void loadCompanies(token)
+    void loadDiagnostics(token)
   }, [token])
+
+  async function loadDiagnostics(authToken: string) {
+    try {
+      const res = await fetch('/api/superadmin/diagnostics', {
+        headers: { Authorization: `Bearer ${authToken}` },
+      })
+      if (!res.ok) return
+      const data: DbDiagnostics = await res.json()
+      setDbDiagnostics(data)
+    } catch {
+      /* ignore */
+    }
+  }
 
   async function loadCompanies(authToken: string) {
     setCompaniesLoading(true)
@@ -172,6 +193,19 @@ export default function SuperAdminPage() {
               Sätt upp ny kund med företag + admin-konto, eller öppna befintlig kund för att lägga
               till personal och moduler.
             </p>
+            {dbDiagnostics ? (
+              <p className="mt-1 text-xs text-gray-500">
+                Databas: {dbDiagnostics.databaseHost}
+                {dbDiagnostics.vercelEnv ? ` (${dbDiagnostics.vercelEnv})` : ''} —{' '}
+                {dbDiagnostics.companyCount} företag i databasen
+                {dbDiagnostics.companyCount !== companies.length && !companiesLoading ? (
+                  <span className="text-amber-700">
+                    {' '}
+                    (listan visar {companies.length} — ladda om sidan om siffrorna skiljer sig)
+                  </span>
+                ) : null}
+              </p>
+            ) : null}
           </div>
           <button
             type="button"
