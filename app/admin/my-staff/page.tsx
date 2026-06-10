@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import EmployeeDocumentsPanel from '@/app/components/EmployeeDocumentsPanel'
+import { useCompanyModules } from '@/contexts/CompanyModulesContext'
 import {
   VACATION_WORK_DAYS,
   VACATION_DAY_LABELS,
@@ -25,6 +26,9 @@ type Employee = {
 }
 
 export default function MyStaffPage() {
+  const { hasModule } = useCompanyModules()
+  const hasVacationModule = hasModule('vacation')
+  const hasEmployeeDocsModule = hasModule('employee_docs')
   const [employees, setEmployees] = useState<Employee[]>([])
   const [employeeForm, setEmployeeForm] = useState({
     name: '',
@@ -60,8 +64,13 @@ export default function MyStaffPage() {
   }, [searchTerm, sortBy])
 
   useEffect(() => {
+    if (!hasVacationModule) {
+      setVacationByEmployee({})
+      setLoadingVacation(false)
+      return
+    }
     fetchVacationPlanning()
-  }, [vacationYear])
+  }, [vacationYear, hasVacationModule])
 
   const fetchEmployees = async () => {
     try {
@@ -436,7 +445,7 @@ export default function MyStaffPage() {
           </form>
         </div>
 
-        {onboardingEmployee ? (
+        {onboardingEmployee && hasEmployeeDocsModule ? (
           <div className="mb-8 rounded-lg border border-[#2D5016]/20 bg-white p-4 sm:p-5">
             <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
               <div>
@@ -549,12 +558,14 @@ export default function MyStaffPage() {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm">
                       <div className="flex flex-col gap-2">
-                        <Link
-                          href={`/employee/${employee.id}`}
-                          className="px-3 py-1 rounded-md border border-[#2D5016]/30 text-[#2D5016] bg-green-50 hover:bg-green-100 text-left"
-                        >
-                          Dokument &amp; uppgifter
-                        </Link>
+                        {hasEmployeeDocsModule ? (
+                          <Link
+                            href={`/employee/${employee.id}`}
+                            className="px-3 py-1 rounded-md border border-[#2D5016]/30 text-[#2D5016] bg-green-50 hover:bg-green-100 text-left"
+                          >
+                            Dokument &amp; uppgifter
+                          </Link>
+                        ) : null}
                         <button
                           type="button"
                           onClick={() => resendSetupEmail(employee.id)}
@@ -580,6 +591,7 @@ export default function MyStaffPage() {
           </div>
         )}
 
+        {hasVacationModule ? (
         <div className="bg-white rounded-lg shadow-md p-4 sm:p-6 mt-8 border border-gray-200">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
             <div>
@@ -723,6 +735,7 @@ export default function MyStaffPage() {
             </div>
           )}
         </div>
+        ) : null}
       </div>
 
       {employeePendingRemove && (

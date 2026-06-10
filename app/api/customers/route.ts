@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { verifyToken } from '@/lib/auth'
 import { adminEffectiveCompanyId } from '@/lib/apiAdmin'
-import { requireAdminCompanyModule, requireCompanyModuleAccess } from '@/lib/companyModuleAccess'
+import { requireAdminCompanyModule, requireCompanyModuleAccess, companyHasModule, moduleForbiddenResponse } from '@/lib/companyModuleAccess'
 
 export const dynamic = 'force-dynamic'
 
@@ -33,6 +33,13 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const activeOnly = searchParams.get('activeOnly') === 'true'
     const includeDeleted = searchParams.get('includeDeleted') === 'true'
+
+    const isAdmin =
+      access.user.role === 'ENTREPRENEUR' || access.user.role === 'PAYROLL_COORDINATOR'
+    if (isAdmin && !activeOnly) {
+      const hasPortal = await companyHasModule(companyId, 'customer_portal')
+      if (!hasPortal) return moduleForbiddenResponse()
+    }
 
     const customers = await prisma.customer.findMany({
       where: {

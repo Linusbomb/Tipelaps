@@ -1,27 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { verifyToken } from '@/lib/auth'
 import { employmentHasEnded } from '@/lib/accountStatus'
+import { requireCompanyModuleAccess } from '@/lib/companyModuleAccess'
 
 export const dynamic = 'force-dynamic'
 
-async function getUserId(request: NextRequest): Promise<string | null> {
-  const authHeader = request.headers.get('authorization')
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return null
-  }
-
-  const token = authHeader.substring(7)
-  const decoded = verifyToken(token)
-  return decoded?.userId || null
-}
-
 export async function GET(request: NextRequest) {
   try {
-    const userId = await getUserId(request)
-    if (!userId) {
-      return NextResponse.json({ error: 'Ej auktoriserad' }, { status: 401 })
-    }
+    const access = await requireCompanyModuleAccess(request, 'projects')
+    if (!access.ok) return access.response
+    const userId = access.user.id
 
     if (await employmentHasEnded(userId)) {
       return NextResponse.json(

@@ -26,6 +26,7 @@ import {
 import { absenceHoursForPayroll } from '@/lib/absence'
 import { isDraftReportStatus, isFiledReportStatus } from '@/lib/reportStatus'
 import type { CompanyModuleId } from '@/lib/companyModules'
+import { useCompanyModules } from '@/contexts/CompanyModulesContext'
 
 type AbsenceRow = {
   isFullDay: boolean
@@ -95,7 +96,7 @@ export default function DashboardPage() {
   const [previousMonthDraftCount, setPreviousMonthDraftCount] = useState(0)
   const [dashboardTab, setDashboardTab] = useState<DashboardViewTab>('overview')
   const [statisticsMounted, setStatisticsMounted] = useState(false)
-  const [enabledModules, setEnabledModules] = useState<CompanyModuleId[]>([])
+  const { hasModule } = useCompanyModules()
   const selectedMonth = selectedMonthDate
     ? `${selectedMonthDate.getFullYear()}-${String(selectedMonthDate.getMonth() + 1).padStart(2, '0')}`
     : new Date().toISOString().slice(0, 7)
@@ -119,22 +120,6 @@ export default function DashboardPage() {
     }
   }, [])
 
-  useEffect(() => {
-    const token = localStorage.getItem('token')
-    if (!token) {
-      setEnabledModules([])
-      return
-    }
-    fetch('/api/company/modules', {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        setEnabledModules(Array.isArray(data?.modules) ? data.modules : [])
-      })
-      .catch(() => setEnabledModules([]))
-  }, [])
-
   const handleDashboardTabChange = (tab: DashboardViewTab) => {
     setDashboardTab(tab)
     if (tab === 'statistics') setStatisticsMounted(true)
@@ -145,8 +130,7 @@ export default function DashboardPage() {
   }
 
   const isAdmin = isAdminRole(userRole)
-  const hasAnnouncementsModule =
-    enabledModules.length === 0 || enabledModules.includes('announcements')
+  const hasAnnouncementsModule = hasModule('announcements')
 
   useEffect(() => {
     if (typeof window === 'undefined' || pathname !== '/dashboard') return
@@ -464,18 +448,22 @@ export default function DashboardPage() {
               >
                 Gå till Admin
               </Link>
-              <Link
-                href="/admin/customers"
-                className="w-full sm:w-auto text-center px-6 py-3 bg-gray-700 text-white rounded-md hover:bg-gray-800"
-              >
-                Kunder
-              </Link>
-              <Link
-                href="/admin/announcements"
-                className="w-full sm:w-auto text-center px-6 py-3 bg-gray-700 text-white rounded-md hover:bg-gray-800"
-              >
-                Nyheter
-              </Link>
+              {hasModule('customer_portal') ? (
+                <Link
+                  href="/admin/customers"
+                  className="w-full sm:w-auto text-center px-6 py-3 bg-gray-700 text-white rounded-md hover:bg-gray-800"
+                >
+                  Kunder
+                </Link>
+              ) : null}
+              {hasModule('announcements') ? (
+                <Link
+                  href="/admin/announcements"
+                  className="w-full sm:w-auto text-center px-6 py-3 bg-gray-700 text-white rounded-md hover:bg-gray-800"
+                >
+                  Nyheter
+                </Link>
+              ) : null}
             </>
           )}
           <Link

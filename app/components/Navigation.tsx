@@ -6,7 +6,7 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { decodeJwtPayload } from '@/lib/decodeJwtPayload'
 import AdminNavMenu from '@/app/components/AdminNavMenu'
-import type { CompanyModuleId } from '@/lib/companyModules'
+import { useCompanyModules } from '@/contexts/CompanyModulesContext'
 
 const PROJECTS_BADGE_EVENT = 'projects-badge-refresh'
 
@@ -97,7 +97,7 @@ export default function Navigation() {
   const [userRole, setUserRole] = useState<string | null>(null)
   const [projectsPendingCount, setProjectsPendingCount] = useState(0)
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
-  const [enabledModules, setEnabledModules] = useState<CompanyModuleId[]>([])
+  const { enabledModules, hasModule } = useCompanyModules()
 
   const fetchProjectsBadge = useCallback(async () => {
     if (typeof window === 'undefined') return
@@ -140,44 +140,24 @@ export default function Navigation() {
       setProjectsPendingCount(0)
       return
     }
+    if (!hasModule('projects')) {
+      setProjectsPendingCount(0)
+      return
+    }
     fetchProjectsBadge()
-  }, [isLoggedIn, userRole, pathname, fetchProjectsBadge])
+  }, [isLoggedIn, userRole, pathname, fetchProjectsBadge, hasModule, enabledModules])
 
   useEffect(() => {
     if (!isLoggedIn || userRole !== 'EMPLOYEE') return undefined
+    if (!hasModule('projects')) return undefined
     const handler = () => fetchProjectsBadge()
     window.addEventListener(PROJECTS_BADGE_EVENT, handler)
     return () => window.removeEventListener(PROJECTS_BADGE_EVENT, handler)
-  }, [isLoggedIn, userRole, fetchProjectsBadge])
-
-  useEffect(() => {
-    const token = localStorage.getItem('token')
-    if (!token) {
-      setEnabledModules([])
-      return
-    }
-    fetch('/api/company/modules', {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        setEnabledModules(Array.isArray(data?.modules) ? data.modules : [])
-      })
-      .catch(() => setEnabledModules([]))
-  }, [pathname, isLoggedIn])
+  }, [isLoggedIn, userRole, fetchProjectsBadge, hasModule])
 
   useEffect(() => {
     setIsMobileMenuOpen(false)
   }, [pathname])
-
-  useEffect(() => {
-    if (!isLoggedIn || userRole !== 'EMPLOYEE') return undefined
-    const onVis = () => {
-      if (document.visibilityState === 'visible') fetchProjectsBadge()
-    }
-    document.addEventListener('visibilitychange', onVis)
-    return () => document.removeEventListener('visibilitychange', onVis)
-  }, [isLoggedIn, userRole, fetchProjectsBadge])
 
   const handleLogout = () => {
     localStorage.removeItem('token')
@@ -197,7 +177,8 @@ export default function Navigation() {
 
   const currentPath = pathname || ''
   const isAdmin = userRole === 'ENTREPRENEUR' || userRole === 'PAYROLL_COORDINATOR'
-  const hasProjectsModule = enabledModules.length === 0 || enabledModules.includes('projects')
+  const hasProjectsModule = hasModule('projects')
+  const hasEmployeeDocsModule = hasModule('employee_docs')
 
   const navLinks = isAdmin ? (
     <AdminNavMenu pathname={currentPath} enabledModules={enabledModules} />
@@ -230,9 +211,11 @@ export default function Navigation() {
           ) : null}
         </AppNavLink>
       )}
-      <AppNavLink href="/my-pages" pathname={currentPath}>
-        {t('nav.myPages')}
-      </AppNavLink>
+      {hasEmployeeDocsModule ? (
+        <AppNavLink href="/my-pages" pathname={currentPath}>
+          {t('nav.myPages')}
+        </AppNavLink>
+      ) : null}
     </div>
   )
 
@@ -277,9 +260,11 @@ export default function Navigation() {
           ) : null}
         </AppNavLink>
       )}
-      <AppNavLink href="/my-pages" pathname={currentPath} mobile>
-        {t('nav.myPages')}
-      </AppNavLink>
+      {hasEmployeeDocsModule ? (
+        <AppNavLink href="/my-pages" pathname={currentPath} mobile>
+          {t('nav.myPages')}
+        </AppNavLink>
+      ) : null}
     </>
   )
 

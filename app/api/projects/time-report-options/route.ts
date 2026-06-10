@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { verifyToken } from '@/lib/auth'
 import { adminEffectiveCompanyId } from '@/lib/apiAdmin'
 import { isProjectSelectableForTimeReport, isUserAssignedToProject } from '@/lib/projectStatus'
+import { requireCompanyModuleAccess } from '@/lib/companyModuleAccess'
 
 export const dynamic = 'force-dynamic'
 
@@ -18,10 +19,10 @@ async function getUserId(request: NextRequest): Promise<string | null> {
 
 export async function GET(request: NextRequest) {
   try {
-    const actorId = await getUserId(request)
-    if (!actorId) {
-      return NextResponse.json({ error: 'Ej auktoriserad' }, { status: 401 })
-    }
+    const access = await requireCompanyModuleAccess(request, 'projects')
+    if (!access.ok) return access.response
+
+    const actorId = access.user.id
 
     const actor = await prisma.user.findUnique({
       where: { id: actorId },

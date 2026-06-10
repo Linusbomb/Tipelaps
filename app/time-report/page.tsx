@@ -16,6 +16,7 @@ import ClockTimeInput from '@/app/components/ClockTimeInput'
 import VehicleEntryFields, { type CompanyVehicleOption } from '@/app/components/VehicleEntryFields'
 import TimeReportProjectSelect from '@/app/components/TimeReportProjectSelect'
 import HoursInput from '@/app/components/HoursInput'
+import { useCompanyModules } from '@/contexts/CompanyModulesContext'
 import OvertimeSummary from '@/app/components/OvertimeSummary'
 import { ABSENCE_TYPES, absenceTypeLabel } from '@/lib/absence'
 import { computeOvertime } from '@/lib/overtime'
@@ -97,6 +98,10 @@ function TimeReportPageContent() {
 
   const isAdmin =
     currentUser?.role === 'ENTREPRENEUR' || currentUser?.role === 'PAYROLL_COORDINATOR'
+
+  const { hasModule } = useCompanyModules()
+  const hasProjectsModule = hasModule('projects')
+  const hasVehiclesModule = hasModule('vehicles')
 
   const reportForUser = useCallback(() => {
     if (!currentUser) return null
@@ -296,7 +301,11 @@ function TimeReportPageContent() {
 
   useEffect(() => {
     fetchCustomers()
-    fetchVehicles()
+    if (hasVehiclesModule) {
+      void fetchVehicles()
+    } else {
+      setCompanyVehicles([])
+    }
 
     const storedPrefill = localStorage.getItem('prefillTimeReportFromProject')
     if (storedPrefill) {
@@ -310,7 +319,7 @@ function TimeReportPageContent() {
         localStorage.removeItem('prefillTimeReportFromProject')
       }
     }
-  }, [])
+  }, [hasVehiclesModule])
 
   const fetchTimeReportProjects = useCallback(async (forUserId?: string) => {
     const token = localStorage.getItem('token')
@@ -337,8 +346,13 @@ function TimeReportPageContent() {
 
   useEffect(() => {
     if (!currentUser) return
+    if (!hasProjectsModule) {
+      setMyProjects([])
+      setSelectedProjectId('')
+      return
+    }
     void fetchTimeReportProjects(isAdmin && reportForUserId ? reportForUserId : currentUser.id)
-  }, [currentUser, isAdmin, reportForUserId, fetchTimeReportProjects])
+  }, [currentUser, isAdmin, reportForUserId, fetchTimeReportProjects, hasProjectsModule])
 
   useEffect(() => {
     if (!reportForUserId) return
@@ -1063,6 +1077,7 @@ function TimeReportPageContent() {
             ) : null}
           </div>
 
+          {hasProjectsModule ? (
           <div className="mb-6">
             <label className="block text-sm font-medium mb-2">
               Koppla till projekt <span className="font-normal text-gray-500">(valfritt)</span>
@@ -1086,6 +1101,7 @@ function TimeReportPageContent() {
               }}
             />
           </div>
+          ) : null}
 
           <div className="mb-6">
             <label className="block text-sm font-medium mb-2">Datum:</label>
@@ -1181,6 +1197,7 @@ function TimeReportPageContent() {
                     />
                   </div>
                 </div>
+                {hasVehiclesModule ? (
                 <VehicleEntryFields
                   vehicles={companyVehicles}
                   value={{
@@ -1195,6 +1212,7 @@ function TimeReportPageContent() {
                     setEntries(updated)
                   }}
                 />
+                ) : null}
                 <div className="mb-2">
                   <label className="block text-sm font-medium mb-1">Beskrivning:</label>
                   <textarea

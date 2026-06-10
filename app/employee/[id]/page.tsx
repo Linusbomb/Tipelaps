@@ -3,8 +3,11 @@
 import { useState, useEffect } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import EmployeeDocumentsPanel from '@/app/components/EmployeeDocumentsPanel'
+import { useCompanyModules } from '@/contexts/CompanyModulesContext'
 
 export default function EmployeePage() {
+  const { hasModule } = useCompanyModules()
+  const hasEmployeeDocsModule = hasModule('employee_docs')
   const router = useRouter()
   const params = useParams()
   const employeeId = params?.id as string
@@ -245,6 +248,7 @@ export default function EmployeePage() {
         </div>
       </div>
 
+      {hasEmployeeDocsModule ? (
       <div className="mb-6">
         <EmployeeDocumentsPanel
           userId={employeeId}
@@ -262,6 +266,7 @@ export default function EmployeePage() {
           }}
         />
       </div>
+      ) : null}
 
       {/* Närmsta anhöriga */}
       <div className="bg-white shadow rounded-lg p-6 mb-6">

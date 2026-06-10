@@ -18,20 +18,23 @@ export type CompanyModuleState = {
 }
 
 export async function getEnabledCompanyModules(companyId: string): Promise<CompanyModuleId[]> {
-  const rows = await prisma.companyFeature.findMany({
-    where: { companyId, enabled: true },
-    select: { moduleId: true },
-  })
+  const [enabledRows, configuredCount] = await Promise.all([
+    prisma.companyFeature.findMany({
+      where: { companyId, enabled: true },
+      select: { moduleId: true },
+    }),
+    prisma.companyFeature.count({ where: { companyId } }),
+  ])
 
-  if (rows.length === 0) {
+  if (configuredCount === 0) {
     return [...DEFAULT_START_PACKAGE_MODULES]
   }
 
-  const enabled = rows
-    .map((row) => row.moduleId)
-    .filter(isCompanyModuleId)
+  const enabled = enabledRows.map((row) => row.moduleId).filter(isCompanyModuleId)
 
-  return enabled.includes('time_reports') ? enabled : (['time_reports', ...enabled] as CompanyModuleId[])
+  return enabled.includes('time_reports')
+    ? enabled
+    : (['time_reports', ...enabled] as CompanyModuleId[])
 }
 
 export async function getCompanyModuleStates(companyId: string): Promise<CompanyModuleState[]> {

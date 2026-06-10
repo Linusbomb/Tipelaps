@@ -6,6 +6,7 @@ import Navigation from './components/Navigation'
 import ImpersonationBanner from './components/ImpersonationBanner'
 import SuperAdminPublicRedirect from './components/SuperAdminPublicRedirect'
 import SuperAdminAppRedirect from './components/SuperAdminAppRedirect'
+import ModuleAccessGuard from './components/ModuleAccessGuard'
 import { Providers } from './providers'
 
 const inter = Inter({ subsets: ['latin'] })
@@ -27,6 +28,7 @@ export default function RootLayout({
         <Providers>
           <SuperAdminPublicRedirect />
           <SuperAdminAppRedirect />
+          <ModuleAccessGuard />
           <ImpersonationBanner />
           <Navigation />
           <main className="min-h-screen" style={{ backgroundColor: '#E8E8D8' }}>

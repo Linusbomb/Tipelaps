@@ -79,7 +79,7 @@ export async function PUT(
     const entry = rawModules.find((item) => item.moduleId === moduleId)
     updates.push({
       moduleId,
-      enabled: entry?.enabled !== false,
+      enabled: entry?.enabled === true,
     })
   }
 

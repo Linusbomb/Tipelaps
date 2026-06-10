@@ -90,6 +90,10 @@ export function companyModuleNavRequirement(navItemId: string): CompanyModuleId 
       return 'customer_portal'
     case 'announcements':
       return 'announcements'
+    case 'my-pages':
+      return 'employee_docs'
+    case 'staff-employees':
+      return null
     default:
       return null
   }

@@ -92,7 +92,7 @@ export default function SuperAdminCompanyModulesPanel({
       <div className="space-y-2">
         {COMPANY_MODULE_DEFINITIONS.map((definition) => {
           const state = modules.find((entry) => entry.moduleId === definition.id)
-          const enabled = definition.alwaysOn ? true : state?.enabled ?? true
+          const enabled = definition.alwaysOn ? true : Boolean(state?.enabled)
           return (
             <label
               key={definition.id}
